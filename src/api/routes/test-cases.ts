@@ -1,0 +1,283 @@
+import { Hono } from "hono";
+import { eq, like, and } from "drizzle-orm";
+import { writeFile, rm, mkdir } from "node:fs/promises";
+import path from "node:path";
+
+import { db } from "../../db";
+import { testCases } from "../../db/schema";
+import { parseFile } from "../../parser";
+import { translateTestCase } from "../../translator/translate-service";
+import { decomposeTestCase } from "../../translator/decompose-service";
+import { KnowledgeService } from "../../knowledge/knowledge-service";
+import { LlmClient } from "../../shared/llm-client";
+import type { TestCase, TestStep } from "../../shared/types";
+
+const router = new Hono();
+
+const CASES_DIR = path.resolve(process.cwd(), "data/cases");
+
+function getLlmClient(): LlmClient {
+  return new LlmClient({
+    apiUrl: process.env.LLM_API_URL || "http://localhost:11434/v1",
+    apiKey: process.env.LLM_API_KEY || "not-needed",
+    model: process.env.LLM_MODEL_NAME || "qwen2.5-72b",
+  });
+}
+
+async function findCaseOr404(id: string) {
+  const [row] = await db
+    .select()
+    .from(testCases)
+    .where(eq(testCases.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+function rowToTestCase(row: NonNullable<Awaited<ReturnType<typeof findCaseOr404>>>): TestCase {
+  return {
+    id: row.id,
+    name: row.name,
+    productLine: row.productLine,
+    source: row.source,
+    steps: JSON.parse(row.stepsJson) as TestStep[],
+    status: row.status,
+  };
+}
+
+router.post("/import", async (c) => {
+  const body = await c.req.parseBody();
+  const file = body["file"] as File | undefined;
+  const productLineId = body["productLineId"] as string | undefined;
+
+  if (!file || !productLineId) {
+    c.status(400);
+    return c.json({ error: "Missing required fields: file, productLineId", status: 400 });
+  }
+
+  if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".md")) {
+    c.status(400);
+    return c.json({ error: "Unsupported file type. Only .xlsx and .md are supported.", status: 400 });
+  }
+
+  const tempDir = path.resolve(process.cwd(), "data/temp");
+  await mkdir(tempDir, { recursive: true });
+  const ext = file.name.endsWith(".xlsx") ? ".xlsx" : ".md";
+  const tempPath = path.join(tempDir, `${crypto.randomUUID()}${ext}`);
+
+  try {
+    const buffer = await file.arrayBuffer();
+    await writeFile(tempPath, new Uint8Array(buffer));
+
+    await mkdir(CASES_DIR, { recursive: true });
+
+    const parsed = await parseFile(tempPath, productLineId);
+
+    const imported: Array<{ id: string; name: string; status: string }> = [];
+    for (const tc of parsed) {
+      await db.insert(testCases).values({
+        id: tc.id,
+        name: tc.name,
+        productLine: tc.productLine,
+        stepsJson: JSON.stringify(tc.steps),
+        source: tc.source,
+        status: tc.status,
+      });
+      imported.push({ id: tc.id, name: tc.name, status: tc.status });
+    }
+
+    return c.json({ cases: imported });
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => {});
+  }
+});
+
+router.get("/", async (c) => {
+  const productLine = c.req.query("productLine");
+  const status = c.req.query("status");
+  const search = c.req.query("search");
+
+  const filters = [];
+  if (productLine) filters.push(eq(testCases.productLine, productLine));
+  if (status) filters.push(eq(testCases.status, status as typeof testCases.status._.data));
+  if (search) filters.push(like(testCases.name, `%${search}%`));
+
+  const query = db.select().from(testCases);
+  const rows = filters.length > 0
+    ? await query.where(and(...filters))
+    : await query;
+
+  return c.json({
+    cases: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      productLine: r.productLine,
+      status: r.status,
+    })),
+  });
+});
+
+router.get("/tree", async (c) => {
+  const rows = await db.select().from(testCases);
+
+  const groupMap = new Map<string, Array<{ id: string; name: string; status: string }>>();
+  for (const r of rows) {
+    const key = r.productLine;
+    if (!groupMap.has(key)) {
+      groupMap.set(key, []);
+    }
+    groupMap.get(key)!.push({
+      id: r.id,
+      name: r.name,
+      status: r.status,
+    });
+  }
+
+  const modules = Array.from(groupMap.entries()).map(([name, cases]) => ({
+    name,
+    cases,
+  }));
+
+  return c.json({ modules });
+});
+
+router.get("/:id", async (c) => {
+  const id = c.req.param("id");
+  const row = await findCaseOr404(id);
+
+  if (!row) {
+    c.status(404);
+    return c.json({ error: "Test case not found", status: 404 });
+  }
+
+  const steps = JSON.parse(row.stepsJson) as TestStep[];
+
+  return c.json({
+    id: row.id,
+    name: row.name,
+    productLine: row.productLine,
+    steps: steps.map((s) => ({
+      order: s.order,
+      actionText: s.actionText,
+      expectedText: s.expectedText,
+    })),
+    status: row.status,
+  });
+});
+
+router.delete("/:id", async (c) => {
+  const id = c.req.param("id");
+  const row = await findCaseOr404(id);
+
+  if (!row) {
+    c.status(404);
+    return c.json({ error: "Test case not found", status: 404 });
+  }
+
+  await db.delete(testCases).where(eq(testCases.id, id));
+
+  const filePath = path.join(CASES_DIR, `${id}.json`);
+  await rm(filePath, { force: true }).catch(() => {});
+
+  c.status(204);
+  return c.body(null);
+});
+
+router.post("/:id/translate", async (c) => {
+  const id = c.req.param("id");
+  const row = await findCaseOr404(id);
+
+  if (!row) {
+    c.status(404);
+    return c.json({ error: "Test case not found", status: 404 });
+  }
+
+  const knowledgeService = new KnowledgeService();
+  const kb = await knowledgeService.getKnowledgeBase(row.productLine);
+
+  if (!kb) {
+    c.status(400);
+    return c.json({
+      error: `Knowledge base not found for product line: ${row.productLine}`,
+      status: 400,
+    });
+  }
+
+  const llm = getLlmClient();
+  const testCase = rowToTestCase(row);
+
+  try {
+    const translated = await translateTestCase(testCase, kb, llm);
+
+    await db
+      .update(testCases)
+      .set({
+        stepsJson: JSON.stringify(translated.steps),
+        status: "translated",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(testCases.id, id));
+
+    const filePath = path.join(CASES_DIR, `${id}.json`);
+    await writeFile(filePath, JSON.stringify(translated, null, 2), "utf-8").catch(() => {});
+
+    c.status(202);
+    return c.json({ status: "translated" });
+  } catch (err) {
+    c.status(500);
+    return c.json({
+      error: `Translation failed: ${err instanceof Error ? err.message : String(err)}`,
+      status: 500,
+    });
+  }
+});
+
+router.post("/:id/decompose", async (c) => {
+  const id = c.req.param("id");
+  const row = await findCaseOr404(id);
+
+  if (!row) {
+    c.status(404);
+    return c.json({ error: "Test case not found", status: 404 });
+  }
+
+  const knowledgeService = new KnowledgeService();
+  const kb = await knowledgeService.getKnowledgeBase(row.productLine);
+
+  if (!kb) {
+    c.status(400);
+    return c.json({
+      error: `Knowledge base not found for product line: ${row.productLine}`,
+      status: 400,
+    });
+  }
+
+  const llm = getLlmClient();
+  const testCase = rowToTestCase(row);
+
+  try {
+    const decomposed = await decomposeTestCase(testCase, kb, llm);
+
+    await db
+      .update(testCases)
+      .set({
+        stepsJson: JSON.stringify(decomposed.steps),
+        status: "decomposed",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(testCases.id, id));
+
+    const filePath = path.join(CASES_DIR, `${id}.json`);
+    await writeFile(filePath, JSON.stringify(decomposed, null, 2), "utf-8").catch(() => {});
+
+    c.status(202);
+    return c.json({ status: "decomposed" });
+  } catch (err) {
+    c.status(500);
+    return c.json({
+      error: `Decomposition failed: ${err instanceof Error ? err.message : String(err)}`,
+      status: 500,
+    });
+  }
+});
+
+export default router;

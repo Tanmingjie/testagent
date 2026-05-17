@@ -1,0 +1,15 @@
+{
+  "id": "b979721b-e5e7-4702-8812-b0700c60ed9b",
+  "name": "首页加载",
+  "productLine": "baidu-demo",
+  "precondition": "已登录",
+  "source": "excel",
+  "steps": [
+    {
+      "order": 1,
+      "actionText": "打开首页",
+      "expectedText": "页面正常显示，包含导航栏、搜索框、内容区域"
+    }
+  ],
+  "status": "raw"
+}

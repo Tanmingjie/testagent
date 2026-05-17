@@ -1,0 +1,30 @@
+{
+  "name": "testagent",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"/Users/jie/.hermes/node/bin/bun run --watch src/api/server.ts\" \"cd web && /Users/jie/.local/bin/npm run dev\"",
+    "dev:api": "bun run --watch src/api/server.ts",
+    "dev:web": "cd web && npm run dev",
+    "build": "tsc",
+    "test": "bun test",
+    "db:migrate": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.2",
+    "@playwright/cli": "^0.1.13",
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^16.4.0",
+    "drizzle-orm": "^0.38.0",
+    "hono": "^4.0.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "bun-types": "^1.2.0",
+    "concurrently": "^9.2.1",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  }
+}

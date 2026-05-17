@@ -1,0 +1,15 @@
+{
+  "id": "2fd46de0-cd03-4877-816e-0e95cfc7ab41",
+  "name": "搜索功能",
+  "productLine": "baidu-demo",
+  "precondition": "已登录且在首页",
+  "source": "excel",
+  "steps": [
+    {
+      "order": 1,
+      "actionText": "在搜索框中输入\"测试\"\n点击搜索按钮",
+      "expectedText": "页面显示搜索关键词\"测试\"的相关结果"
+    }
+  ],
+  "status": "raw"
+}

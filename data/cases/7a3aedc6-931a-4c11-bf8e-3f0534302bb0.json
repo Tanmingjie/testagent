@@ -1,0 +1,15 @@
+{
+  "id": "7a3aedc6-931a-4c11-bf8e-3f0534302bb0",
+  "name": "导航栏切换",
+  "productLine": "baidu-demo",
+  "precondition": "已登录",
+  "source": "excel",
+  "steps": [
+    {
+      "order": 1,
+      "actionText": "点击导航栏\"设置\"链接",
+      "expectedText": "页面跳转到设置页面，URL 包含 /settings"
+    }
+  ],
+  "status": "raw"
+}
