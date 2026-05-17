@@ -5,6 +5,7 @@ dist/
 data/*.db*
 data/screenshots/*.png
 data/generated/
+data/cases/
 .playwright/
 .sisyphus/evidence/
 .sisyphus/notepads/
