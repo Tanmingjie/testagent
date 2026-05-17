@@ -2,7 +2,7 @@ node_modules/
 dist/
 .env
 *.db
-data/*.db
+data/*.db*
 data/screenshots/*.png
 data/generated/
 .playwright/
