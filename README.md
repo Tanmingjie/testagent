@@ -16,8 +16,8 @@ cp .env.example .env
 npx playwright-cli install-browser chromium
 bun run db:migrate
 
-# 4. （可选）编辑知识库，填入被测产品的术语
-#    编辑 knowledge/demo-product.json
+# 4. （可选）配置产品知识库
+#    参考 knowledge/template.md 创建 <产品名>.md
 
 # 5. 启动
 bun run dev
@@ -27,13 +27,21 @@ bun run dev
 ## 使用流程
 
 ```
-1. 打开 http://localhost:5173 → 上传 Excel/Markdown 测试用例
-2. 点击"翻译"→ AI 标准化用例术语
-3. 点击"拆解"→ AI 将复合步骤分解为原子操作
-4. 点击"执行"→ AI 驱动 Playwright 浏览器自动测试
-5. 查看报告 → 截图 + 失败分析(Fix Prompt) + Python 代码
-6. 复制/下载 Python 代码，可直接在项目中复用
+1. 在知识库目录下创建产品 MD 文档（参考 knowledge/template.md）
+2. 打开 http://localhost:5173 → 选择产品线 → 上传 Excel/Markdown 测试用例
+3. 用例管理页 → 点击"执行" → 进入执行页
+4. 执行页选择"一键执行"（翻译→拆解→执行自动串联）或"分步执行"
+5. 查看执行历史 → 截图 + Python 代码 + 修复建议
 ```
+
+## 页面导航
+
+| 页签 | 功能 |
+|------|------|
+| 导入用例 | 选择产品线，上传 Excel/MD 文件 |
+| 用例管理 | 树状查看用例，点击展开步骤，执行/删除用例 |
+| 执行测试 | 3 阶段工作流（翻译→拆解→执行），一键/分步两种模式 |
+| 执行历史 | 历史记录列表，点击查看详情（步骤截图+Python代码+修复建议） |
 
 ## 技术栈
 
@@ -49,38 +57,43 @@ bun run dev
 
 ```
 src/
-├── shared/       类型定义、LLM 客户端、常量
+├── shared/       类型定义、LLM 客户端、提示词
 ├── parser/       Excel (.xlsx) + Markdown (.md) 解析
 ├── translator/   LLM 翻译 + 步骤拆解服务
-├── knowledge/    知识库加载 + 术语匹配
-├── executor/     🔴 核心：页面分析 → CLI执行 → Python代码生成
-├── api/          REST API (Hono) + 路由 + 中间件
+├── knowledge/    MD 知识库加载（frontmatter: name + baseUrl）
+├── executor/     🔴 核心：页面快照分析 → CLI 执行 → Python 代码生成
+├── api/          REST API (Hono) — 异步执行 + 轮询
 └── db/           Drizzle schema + SQLite
 
-web/              React 前端 (5 个页面)
-├── pages/        Import | Cases | Knowledge | Execution | Report
+web/              React 前端
+├── pages/        Import | Cases | Execution | ExecutionHistory
 ├── components/   StatusBadge | FixPromptPanel | CodePreviewPanel
 └── hooks/        useExecutionProgress (轮询)
 
-data/             SQLite .db + 截图 + 生成的 .py 文件
-knowledge/        知识库 JSON 文件
+data/             SQLite .db + 截图
+knowledge/        产品知识库 MD 文件
 ```
 
 ## 核心架构
 
 ```
-Excel/MD → parse → translate → decompose → pageAnalyze
-                                                ↓
-                              execute via playwright-cli
-                              LLM每步产出: cliCommand + pythonCode
-                                                ↓
-                              report + FixPrompt + .py
+Excel/MD → parse → translate → decompose
+                                    ↓
+CLI open <baseUrl> → resize(全页) → scroll(懒加载) → snapshot(含boxes)
+                                    ↓
+                for each step:
+                  LLM 阅读 快照元素 + 知识库MD → 输出 cliCommand + pythonCode
+                  playwrigt-cli <cliCommand> → 截图 → 验证
+                                    ↓
+                pythonCode 聚合 → 完整 .py + FixPrompt
 ```
 
 关键设计：
-- **LLM 一次调用同步产出两个输出**：`cliCommand`（立即执行）+ `pythonCode`（最终交付），零额外 token
-- **页面分析预匹配**：执行前分析页面结构 + 知识库术语匹配，每步省 50-70% token
-- **生成代码即交付物**：用户获得可独立运行的 Playwright Python 脚本
+- **真实 Playwright ref**：直接使用快照中的 ref ID，确保 CLI 命令可执行
+- **知识库 MD 注入**：产品知识全文注入 LLM 提示词，替代机械术语匹配
+- **异步执行**：POST /run 立即返回 runId，后台执行 + 前端轮询
+- **全页快照**：`snapshot --boxes` 获取元素坐标，`screenshot --full-page` 捕获完整页面
+- **智能视口**：`eval` 获取内容尺寸 → 动态 `resize` 匹配，确保全景可见
 
 ## Scripts
 
@@ -95,8 +108,9 @@ Excel/MD → parse → translate → decompose → pageAnalyze
 
 | 变量 | 说明 |
 |:--|:--|
-| `LLM_API_URL` | OpenAI 兼容 API 地址 (如 `http://localhost:11434/v1`) |
+| `LLM_API_URL` | OpenAI 兼容 API 地址 (如 `https://api.deepseek.com/v1`) |
 | `LLM_API_KEY` | API 密钥 |
-| `LLM_MODEL_NAME` | 模型名称 (如 `deepseek-chat` 或 `qwen2.5-72b`) |
+| `LLM_MODEL_NAME` | 模型名称 (如 `deepseek-chat`) |
 | `PORT` | 后端端口 (默认 3001) |
 | `DB_PATH` | SQLite 数据库路径 (默认 `./data/testagent.db`) |
+| `HEADED` | 设为 `true` 显示浏览器窗口，`false` 为无头模式 |
