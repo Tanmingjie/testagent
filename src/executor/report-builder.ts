@@ -17,6 +17,7 @@ export function buildReport(
       status,
       error: ix.error,
       pythonCode: ix.pythonCode,
+      screenshotPath: ix.screenshotPath,
     };
   });
 

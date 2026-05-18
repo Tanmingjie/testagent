@@ -17,6 +17,7 @@ export interface RunStatusStep {
   screenshotUrl?: string;
   error?: string;
   pythonCode?: string;
+  action?: string;
 }
 
 export interface RunStatusSummary {
@@ -29,6 +30,8 @@ export interface RunStatusSummary {
 export interface RunStatusResponse {
   runId: string;
   status: string;
+  testCaseId?: string;
+  caseName?: string;
   summary: RunStatusSummary;
   steps: RunStatusStep[];
   generatedPythonCode: string;
@@ -39,6 +42,7 @@ export interface RunStatusResponse {
 export interface RunListItem {
   runId: string;
   caseId: string;
+  caseName?: string;
   status: string;
   createdAt: string;
 }

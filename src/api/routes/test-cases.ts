@@ -16,6 +16,8 @@ const router = new Hono();
 
 const CASES_DIR = path.resolve(process.cwd(), "data/cases");
 
+const knowledgeService = new KnowledgeService();
+
 function getLlmClient(): LlmClient {
   return new LlmClient({
     apiUrl: process.env.LLM_API_URL || "http://localhost:11434/v1",
@@ -79,6 +81,7 @@ router.post("/import", async (c) => {
         name: tc.name,
         productLine: tc.productLine,
         stepsJson: JSON.stringify(tc.steps),
+        originalStepsJson: JSON.stringify(tc.steps),
         source: tc.source,
         status: tc.status,
       });
@@ -118,18 +121,29 @@ router.get("/", async (c) => {
 
 router.get("/tree", async (c) => {
   const rows = await db.select().from(testCases);
+  const withSteps = c.req.query("withSteps") === "true";
 
-  const groupMap = new Map<string, Array<{ id: string; name: string; status: string }>>();
+  const groupMap = new Map<string, Array<any>>();
   for (const r of rows) {
     const key = r.productLine;
     if (!groupMap.has(key)) {
       groupMap.set(key, []);
     }
-    groupMap.get(key)!.push({
+    const entry: any = {
       id: r.id,
       name: r.name,
       status: r.status,
-    });
+    };
+    if (withSteps) {
+      const stepsJson = r.originalStepsJson || r.stepsJson;
+      const steps = JSON.parse(stepsJson);
+      entry.steps = steps.map((s: any) => ({
+        order: s.order,
+        actionText: s.actionText,
+        expectedText: s.expectedText,
+      }));
+    }
+    groupMap.get(key)!.push(entry);
   }
 
   const modules = Array.from(groupMap.entries()).map(([name, cases]) => ({
@@ -138,6 +152,21 @@ router.get("/tree", async (c) => {
   }));
 
   return c.json({ modules });
+});
+
+router.delete("/batch", async (c) => {
+  const productLine = c.req.query("productLine");
+  if (productLine) {
+    await db.delete(testCases).where(eq(testCases.productLine, productLine));
+  } else {
+    await db.delete(testCases);
+  }
+  return c.json({ deleted: true });
+});
+
+router.get("/product-lines", (c) => {
+  const lines = knowledgeService.getProductLines();
+  return c.json({ productLines: lines.map((p) => ({ id: p.name, name: p.name, baseUrl: p.baseUrl })) });
 });
 
 router.get("/:id", async (c) => {
@@ -178,8 +207,7 @@ router.delete("/:id", async (c) => {
   const filePath = path.join(CASES_DIR, `${id}.json`);
   await rm(filePath, { force: true }).catch(() => {});
 
-  c.status(204);
-  return c.body(null);
+  return c.json({ deleted: true });
 });
 
 router.post("/:id/translate", async (c) => {
@@ -192,21 +220,13 @@ router.post("/:id/translate", async (c) => {
   }
 
   const knowledgeService = new KnowledgeService();
-  const kb = await knowledgeService.getKnowledgeBase(row.productLine);
-
-  if (!kb) {
-    c.status(400);
-    return c.json({
-      error: `Knowledge base not found for product line: ${row.productLine}`,
-      status: 400,
-    });
-  }
+  const knowledgeContent = knowledgeService.buildContext(row.productLine);
 
   const llm = getLlmClient();
   const testCase = rowToTestCase(row);
 
   try {
-    const translated = await translateTestCase(testCase, kb, llm);
+    const translated = await translateTestCase(testCase, knowledgeContent, llm);
 
     await db
       .update(testCases)
@@ -221,7 +241,14 @@ router.post("/:id/translate", async (c) => {
     await writeFile(filePath, JSON.stringify(translated, null, 2), "utf-8").catch(() => {});
 
     c.status(202);
-    return c.json({ status: "translated" });
+    return c.json({
+      status: "translated",
+      steps: translated.steps.map((s) => ({
+        order: s.order,
+        actionText: s.actionText,
+        expectedText: s.expectedText,
+      })),
+    });
   } catch (err) {
     c.status(500);
     return c.json({
@@ -241,21 +268,13 @@ router.post("/:id/decompose", async (c) => {
   }
 
   const knowledgeService = new KnowledgeService();
-  const kb = await knowledgeService.getKnowledgeBase(row.productLine);
-
-  if (!kb) {
-    c.status(400);
-    return c.json({
-      error: `Knowledge base not found for product line: ${row.productLine}`,
-      status: 400,
-    });
-  }
+  const knowledgeContent = knowledgeService.buildContext(row.productLine);
 
   const llm = getLlmClient();
   const testCase = rowToTestCase(row);
 
   try {
-    const decomposed = await decomposeTestCase(testCase, kb, llm);
+    const decomposed = await decomposeTestCase(testCase, knowledgeContent, llm);
 
     await db
       .update(testCases)
@@ -270,7 +289,14 @@ router.post("/:id/decompose", async (c) => {
     await writeFile(filePath, JSON.stringify(decomposed, null, 2), "utf-8").catch(() => {});
 
     c.status(202);
-    return c.json({ status: "decomposed" });
+    return c.json({
+      status: "decomposed",
+      steps: decomposed.steps.map((s) => ({
+        order: s.order,
+        actionText: s.actionText,
+        expectedText: s.expectedText,
+      })),
+    });
   } catch (err) {
     c.status(500);
     return c.json({

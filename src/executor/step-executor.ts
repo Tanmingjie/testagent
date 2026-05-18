@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { TestCase, TestStep, PageSummary, Interaction, StepResult, KnowledgeBase } from '@shared/types';
+import type { TestCase, TestStep, PageSummary, Interaction, StepResult } from '@shared/types';
 import type { LlmClient } from '@shared/llm-client';
 import type { ExecutionContext, CliCommands, LLMCodeGenOutput } from './types';
 import { analyzePage } from './page-analyzer';
@@ -21,7 +21,7 @@ export async function executeStep(
   const { actionText, expectedText, order } = step;
 
   const doAttempt = async (retryError?: string): Promise<{ result: StepResult; interaction: Interaction }> => {
-    const prompt = buildCodeGenPrompt(pageSummary, actionText, expectedText, interactionLog, retryError);
+    const prompt = buildCodeGenPrompt(pageSummary, actionText, expectedText, interactionLog, context.knowledgeContent, retryError);
     const llmOutput = await callLlmForCodegen(llm, prompt);
 
     let cliOk = false;
@@ -47,6 +47,7 @@ export async function executeStep(
       targetElement: llmOutput.targetElement,
       passed: cliOk,
       error: cliOk ? undefined : error,
+      screenshotPath,
     };
 
     const result: StepResult = {
@@ -70,27 +71,33 @@ export async function executeStep(
 
 export async function executeTestCase(
   testCase: TestCase,
-  knowledgeBase: KnowledgeBase,
+  productLine: string,
+  baseUrl: string,
+  knowledgeContent: string,
   llm: LlmClient,
   cli: CliCommands,
 ): Promise<{ results: StepResult[]; interactionLog: Interaction[] }> {
-  const baseUrl = knowledgeBase.baseUrl;
-  if (!baseUrl) {
-    throw new Error(`No baseUrl configured for product line "${knowledgeBase.productLine}"`);
-  }
-
   const session = await CliSession.open(baseUrl);
   if (!session.success) {
     throw new Error(`Failed to open browser session: ${session.error}`);
   }
 
+  await cli.resize(1920, 1080);
+
+  const dimsResult = await cli.evalPage('() => ({ w: Math.max(document.body.scrollWidth, 1920), h: Math.max(document.body.scrollHeight, 1080) })');
+  try {
+    const dims = JSON.parse(dimsResult.stdout) as { w: number; h: number };
+    if (dims.w > 1920 || dims.h > 1080) {
+      await cli.resize(Math.min(dims.w, 2560), Math.min(dims.h, 4096));
+    }
+  } catch {}
+
   const results: StepResult[] = [];
   const interactionLog: Interaction[] = [];
 
   try {
-    const pageSummary = await analyzePage(cli.navigate, knowledgeBase);
-
-    const context: ExecutionContext = { cli, llm, knowledgeBase, testCase };
+    const pageSummary = await analyzePage(cli.navigate, baseUrl);
+    const context: ExecutionContext = { cli, llm, productLine, baseUrl, knowledgeContent, testCase };
 
     for (const step of testCase.steps) {
       const { result, interaction } = await executeStep(step, context, pageSummary, interactionLog);
@@ -125,9 +132,16 @@ function buildUserPrompt(
   actionText: string,
   expectedText: string,
   interactionLog: Interaction[],
+  knowledgeContent: string,
   retryError?: string,
 ): string {
   const lines: string[] = [];
+
+  if (knowledgeContent) {
+    lines.push('## 产品知识库');
+    lines.push(knowledgeContent);
+    lines.push('');
+  }
 
   lines.push('## 页面摘要');
   lines.push(`URL: ${pageSummary.url}`);
@@ -194,9 +208,10 @@ function buildCodeGenPrompt(
   actionText: string,
   expectedText: string,
   interactionLog: Interaction[],
+  knowledgeContent: string,
   retryError?: string,
 ): string {
-  return buildUserPrompt(pageSummary, actionText, expectedText, interactionLog, retryError);
+  return buildUserPrompt(pageSummary, actionText, expectedText, interactionLog, knowledgeContent, retryError);
 }
 
 function parseLLMResponse(content: string): LLMCodeGenOutput {
@@ -297,9 +312,10 @@ function parseCliCommand(cmd: string): { action: string; args: string[] } | null
 async function captureScreenshot(cli: CliCommands, stepOrder: number): Promise<string | undefined> {
   const timestamp = Date.now();
   const filename = `step-${stepOrder}-${timestamp}.png`;
-  const result = await cli.screenshot(filename).catch(() => ({ success: false, stdout: '', stderr: '' }));
+  const filePath = `${SCREENSHOT_DIR}/${filename}`;
+  const result = await cli.screenshot(filePath).catch(() => ({ success: false, stdout: '', stderr: '' }));
   if (result.success) {
-    return `${SCREENSHOT_DIR}/${filename}`;
+    return filePath;
   }
   return undefined;
 }

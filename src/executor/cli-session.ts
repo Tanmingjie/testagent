@@ -6,6 +6,7 @@ export class CliSession {
    */
   static async open(url?: string): Promise<{ success: boolean; error?: string }> {
     const args = ['open'];
+    if (process.env.HEADED === 'true') args.push('--headed');
     if (url) args.push(url);
     const result = execCli(args);
     return { success: result.success, error: result.stderr || undefined };

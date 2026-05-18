@@ -10,6 +10,7 @@ export const testCases = sqliteTable('test_cases', {
   name: text('name').notNull(),
   productLine: text('product_line').notNull(),
   stepsJson: text('steps_json').notNull(),
+  originalStepsJson: text('original_steps_json'),
   source: text('source', { enum: ['excel', 'markdown'] }).notNull(),
   status: text('status', { enum: ['raw', 'translated', 'decomposed', 'executed'] })
     .notNull()

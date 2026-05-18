@@ -1,5 +1,5 @@
 import type { LlmClient } from '@shared/llm-client';
-import type { TestCase, KnowledgeBase, PageElement } from '@shared/types';
+import type { TestCase, PageElement } from '@shared/types';
 import type { CliResult } from './cli-runner';
 
 export type { PageElement, CliResult };
@@ -14,12 +14,17 @@ export interface CliCommands {
   type(text: string): Promise<CliResult>;
   fill(ref: string, text: string): Promise<CliResult>;
   press(key: string): Promise<CliResult>;
+  resize(width: number, height: number): Promise<CliResult>;
+  mousewheel(dx: number, dy: number): Promise<CliResult>;
+  evalPage(func: string): Promise<CliResult>;
 }
 
 export interface ExecutionContext {
   cli: CliCommands;
   llm: LlmClient;
-  knowledgeBase: KnowledgeBase;
+  productLine: string;
+  baseUrl: string;
+  knowledgeContent: string;
   testCase: TestCase;
 }
 

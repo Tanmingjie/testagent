@@ -1,5 +1,9 @@
 import { execCli, type CliResult } from './cli-runner';
 
+export async function resize(width: number, height: number): Promise<CliResult> {
+  return execCli(['resize', String(width), String(height)]);
+}
+
 /**
  * Navigate the current browser to a URL.
  */
@@ -22,8 +26,8 @@ export async function snapshot(depth?: number): Promise<CliResult> {
  * Optional filename to save the screenshot as.
  */
 export async function screenshot(filename?: string): Promise<CliResult> {
-  const args = ['screenshot'];
-  if (filename) args.push(filename);
+  const args = ['screenshot', '--full-page'];
+  if (filename) args.push('--filename', filename);
   return execCli(args);
 }
 
@@ -53,4 +57,12 @@ export async function fill(ref: string, text: string): Promise<CliResult> {
  */
 export async function press(key: string): Promise<CliResult> {
   return execCli(['press', key]);
+}
+
+export async function mousewheel(dx: number, dy: number): Promise<CliResult> {
+  return execCli(['mousewheel', String(dx), String(dy)]);
+}
+
+export async function evalPage(func: string): Promise<CliResult> {
+  return execCli(['eval', func]);
 }

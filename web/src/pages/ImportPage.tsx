@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 interface ProductLine {
   id: string
   name: string
+  baseUrl?: string
 }
 
 interface ImportedCase {
@@ -30,10 +31,10 @@ export default function ImportPage() {
 
   useEffect(() => {
     setLoadingLines(true)
-    api.get<ProductLine[]>('/product-lines')
-      .then((lines) => {
-        setProductLines(lines)
-        if (lines.length > 0) setSelectedProductLine(lines[0].id)
+    api.get<{ productLines: ProductLine[] }>('/test-cases/product-lines')
+      .then((res) => {
+        setProductLines(res.productLines)
+        if (res.productLines.length > 0) setSelectedProductLine(res.productLines[0].id)
       })
       .catch(() => setError('获取产品线列表失败'))
       .finally(() => setLoadingLines(false))
@@ -134,7 +135,7 @@ export default function ImportPage() {
         >
           {productLines.map((line) => (
             <option key={line.id} value={line.id}>
-              {line.name}
+              {line.name}{line.baseUrl ? ` (${line.baseUrl})` : ''}
             </option>
           ))}
         </select>

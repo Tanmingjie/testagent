@@ -106,6 +106,7 @@ export interface Interaction {
   targetElement?: PageElement;
   passed: boolean;
   error?: string;
+  screenshotPath?: string;
 }
 
 export interface VocabEntry {

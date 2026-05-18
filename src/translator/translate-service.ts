@@ -1,27 +1,9 @@
 import { LlmClient } from "@shared/llm-client";
 import { translatorPrompt } from "@shared/llm-prompts";
-import type { TestCase, KnowledgeBase } from "@shared/types";
+import type { TestCase } from "@shared/types";
 import { TestCaseSchema } from "@shared/schemas";
 
-function matchVocabulary(rawCase: TestCase, kb: KnowledgeBase): string[] {
-  const caseText = [
-    rawCase.name,
-    rawCase.precondition ?? "",
-    ...rawCase.steps.flatMap((s) => [s.actionText, s.expectedText]),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return kb.vocab
-    .filter((v) => caseText.includes(v.term.toLowerCase()))
-    .map((v) => (v.locator ? `${v.term} (${v.locator})` : v.term));
-}
-
-function buildUserMessage(
-  rawCase: TestCase,
-  matchedTerms: string[],
-): string {
+function buildUserMessage(rawCase: TestCase, knowledgeContent: string): string {
   const lines: string[] = [
     "请标准化以下原始测试用例：",
     "",
@@ -30,35 +12,20 @@ function buildUserMessage(
     '```',
   ];
 
-  if (matchedTerms.length > 0) {
-    lines.push("", "匹配的术语表（请使用这些术语标准化步骤）：");
-    matchedTerms.forEach((t) => lines.push(`- ${t}`));
-  } else {
-    lines.push("", "（无匹配的词汇表术语）");
+  if (knowledgeContent) {
+    lines.push("", "## 产品知识库（请参考以下术语和规范进行标准化）", "", knowledgeContent);
   }
 
   return lines.join("\n");
 }
 
-/**
- * Translate/standardize a raw test case using an LLM and knowledge base context.
- *
- * Flow:
- * 1. Extract matched vocabulary terms from KB that appear in the case text
- * 2. Construct prompt: translatorPrompt + raw case text + matched vocabulary
- * 3. Call LLM with response_format: { type: "json_object" }
- * 4. Parse LLM response as TestCase and validate with Zod schema
- * 5. Retry once if parsing or validation fails
- * 6. Return translated TestCase
- */
 export async function translateTestCase(
   rawCase: TestCase,
-  kb: KnowledgeBase,
+  knowledgeContent: string,
   llm: LlmClient,
 ): Promise<TestCase> {
-  const matchedTerms = matchVocabulary(rawCase, kb);
   const systemPrompt = translatorPrompt();
-  const userMessage = buildUserMessage(rawCase, matchedTerms);
+  const userMessage = buildUserMessage(rawCase, knowledgeContent);
 
   const doAttempt = async (retryFeedback?: string): Promise<TestCase> => {
     const messages: { role: string; content: string }[] = [
@@ -67,10 +34,7 @@ export async function translateTestCase(
     ];
 
     if (retryFeedback) {
-      messages.push({
-        role: "user",
-        content: retryFeedback,
-      });
+      messages.push({ role: "user", content: retryFeedback });
     }
 
     const { content } = await llm.chatCompletion(messages, {

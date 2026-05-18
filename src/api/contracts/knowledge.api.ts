@@ -6,6 +6,7 @@
 export interface ProductLineResponse {
   id: string;
   name: string;
+  baseUrl?: string;
 }
 
 // GET /api/knowledge/:productLineId — Full KB

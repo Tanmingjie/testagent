@@ -2,7 +2,6 @@ import { NavLink } from 'react-router-dom'
 import {
   Download,
   FileText,
-  BookOpen,
   PlayCircle,
   BarChart3,
 } from 'lucide-react'
@@ -10,9 +9,8 @@ import {
 const navItems = [
   { to: '/', label: '导入用例', icon: Download },
   { to: '/cases', label: '用例管理', icon: FileText },
-  { to: '/knowledge', label: '知识库', icon: BookOpen },
   { to: '/execute', label: '执行测试', icon: PlayCircle },
-  { to: '/report', label: '测试报告', icon: BarChart3 },
+  { to: '/history', label: '执行历史', icon: BarChart3 },
 ]
 
 export default function Sidebar() {

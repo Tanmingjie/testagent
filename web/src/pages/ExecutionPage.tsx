@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useExecutionProgress } from '../hooks/useExecutionProgress'
 import {
@@ -8,31 +9,57 @@ import {
   XCircle,
   AlertCircle,
   Clock,
+  ChevronDown,
   ChevronRight,
-  FileText,
-  RotateCw,
   Code2,
   Lightbulb,
+  ExternalLink,
+  Copy,
+  Download,
+  Zap,
+  Languages,
+  Split,
 } from 'lucide-react'
 
-/* ---------- types ---------- */
+interface StepWithDetails {
+  stepOrder: number
+  status: string
+  screenshotUrl?: string
+  error?: string
+  pythonCode?: string
+  actionText?: string
+  expectedText?: string
+  code?: string
+}
 
-interface ListCaseItem {
+interface CaseStep {
+  order: number
+  actionText: string
+  expectedText: string
+}
+
+interface CaseDetail {
   id: string
   name: string
   productLine: string
+  steps: CaseStep[]
   status: string
-  lastRunStatus?: string
 }
 
-interface RunListItem {
-  runId: string
-  caseId: string
+interface TranslateDecomposeResult {
   status: string
-  createdAt: string
+  steps: CaseStep[]
 }
 
-/* ---------- helpers ---------- */
+type PhaseStatus = 'idle' | 'loading' | 'done' | 'error'
+
+interface PhaseState {
+  status: PhaseStatus
+  steps: CaseStep[]
+  error?: string
+}
+
+type Mode = 'auto' | 'manual'
 
 const stepStatusConfig: Record<string, { label: string; icon: React.ReactNode; class: string }> = {
   PASS: {
@@ -63,367 +90,779 @@ const defaultStepConfig = {
   class: 'border-gray-100 bg-gray-50',
 }
 
-const runStatusLabel: Record<string, string> = {
-  running: '执行中',
-  passed: '已通过',
-  failed: '已失败',
-  error: '出错',
-}
-
-/* ---------- component ---------- */
+const PHASE_CONFIG = [
+  {
+    key: 'translate' as const,
+    number: 1,
+    title: '翻译',
+    description: '标准化用例术语，适配产品知识库',
+    icon: Languages,
+    apiEndpoint: (id: string) => `/test-cases/${id}/translate`,
+    successLabel: '翻译完成',
+    loadingLabel: '正在翻译…',
+  },
+  {
+    key: 'decompose' as const,
+    number: 2,
+    title: '分解',
+    description: '将复合步骤分解为原子操作',
+    icon: Split,
+    apiEndpoint: (id: string) => `/test-cases/${id}/decompose`,
+    successLabel: '分解完成',
+    loadingLabel: '正在分解…',
+  },
+  {
+    key: 'execute' as const,
+    number: 3,
+    title: '执行',
+    description: 'AI 驱动浏览器自动测试',
+    icon: Zap,
+    apiEndpoint: (id: string) => `/execution/run/${id}`,
+    successLabel: '执行完成',
+    loadingLabel: '正在执行…',
+  },
+]
 
 export default function ExecutionPage() {
-  const [testCases, setTestCases] = useState<ListCaseItem[]>([])
-  const [selectedCaseId, setSelectedCaseId] = useState('')
-  const [runId, setRunId] = useState<string | null>(null)
-  const [recentRuns, setRecentRuns] = useState<RunListItem[]>([])
-  const [executing, setExecuting] = useState(false)
-  const [executeError, setExecuteError] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const caseIdFromUrl = searchParams.get('caseId')
+
+  const [selectedCaseId, setSelectedCaseId] = useState(caseIdFromUrl || '')
+  const [caseDetail, setCaseDetail] = useState<CaseDetail | null>(null)
+  const [caseDetailLoading, setCaseDetailLoading] = useState(false)
+
+  const [mode, setMode] = useState<Mode>('auto')
+  const [translate, setTranslate] = useState<PhaseState>({ status: 'idle', steps: [] })
+  const [decompose, setDecompose] = useState<PhaseState>({ status: 'idle', steps: [] })
+  const [execute, setExecute] = useState<PhaseState>({ status: 'idle', steps: [] })
+
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [executingAll, setExecutingAll] = useState(false)
+
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null)
-  const [casesLoading, setCasesLoading] = useState(true)
-  const [runsLoading, setRunsLoading] = useState(true)
-  const [casesError, setCasesError] = useState<string | null>(null)
+  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
+  const [copied, setCopied] = useState(false)
 
-  const { status, summary, steps, generatedPythonCode, fixPrompt, loading, error } =
-    useExecutionProgress(runId)
+  const {
+    status: runStatus,
+    summary,
+    steps: runSteps,
+    generatedPythonCode,
+    fixPrompt,
+    loading: runProgressLoading,
+    error: runProgressError,
+  } = useExecutionProgress(activeRunId)
 
-  /* ---- data fetching ---- */
-
-  useEffect(() => {
-    setCasesLoading(true)
-    api.get<{ cases: ListCaseItem[] }>('/test-cases?status=decomposed')
-      .then((res) => setTestCases(res.cases))
-      .catch(() => setCasesError('获取测试用例失败'))
-      .finally(() => setCasesLoading(false))
-
-    setRunsLoading(true)
-    api.get<{ runs: RunListItem[] }>('/execution/runs')
-      .catch(() => {})
-      .finally(() => setRunsLoading(false))
-  }, [])
-
-  /* refresh recent runs when a terminal state is reached */
-  useEffect(() => {
-    if (status && !['running', 'pending'].includes(status)) {
-      api.get<{ runs: RunListItem[] }>('/execution/runs')
-        .then((res) => setRecentRuns(res.runs))
-        .catch(() => {})
-    }
-  }, [status])
-
-  /* ---- actions ---- */
-
-  const handleExecute = async () => {
-    if (!selectedCaseId) return
-    setExecuting(true)
-    setExecuteError(null)
-    try {
-      const result = await api.post<{ runId: string }>(`/execution/run/${selectedCaseId}`, {})
-      setRunId(result.runId)
-    } catch (err) {
-      setExecuteError(err instanceof Error ? err.message : '启动执行失败')
-    } finally {
-      setExecuting(false)
-    }
-  }
-
-  const isTerminal = status && !['running', 'pending'].includes(status)
-  const completedCount = steps.filter((s) =>
+  const isRunTerminal = runStatus && !['running', 'pending'].includes(runStatus)
+  const execCompletedCount = runSteps.filter((s) =>
     ['PASS', 'FAIL', 'BLOCK'].includes(s.status),
   ).length
 
-  /* ---- render ---- */
+  useEffect(() => {
+    const cid = searchParams.get('caseId')
+    if (!cid) return
+    setSelectedCaseId(cid)
+  }, [searchParams])
+
+  useEffect(() => {
+    if (!selectedCaseId) {
+      setCaseDetail(null)
+      return
+    }
+    setCaseDetailLoading(true)
+    api.get<CaseDetail>(`/test-cases/${selectedCaseId}`)
+      .then((data) => setCaseDetail(data))
+      .catch(() => setCaseDetail(null))
+      .finally(() => setCaseDetailLoading(false))
+  }, [selectedCaseId])
+
+  useEffect(() => {
+    setTranslate({ status: 'idle', steps: [] })
+    setDecompose({ status: 'idle', steps: [] })
+    setExecute({ status: 'idle', steps: [] })
+    setActiveRunId(null)
+    setExecutingAll(false)
+  }, [selectedCaseId])
+
+  useEffect(() => {
+    if (activeRunId && isRunTerminal) {
+      setExecute((prev) => ({ ...prev, status: 'done' }))
+    } else if (activeRunId && runStatus === 'running') {
+      setExecute((prev) => ({ ...prev, status: 'loading' }))
+    }
+  }, [activeRunId, isRunTerminal, runStatus])
+
+  const startPhase = useCallback(
+    async (phase: 'translate' | 'decompose') => {
+      if (!selectedCaseId) return
+      const setter = phase === 'translate' ? setTranslate : setDecompose
+      setter({ status: 'loading', steps: [] })
+      try {
+        const result = await api.post<TranslateDecomposeResult>(
+          PHASE_CONFIG.find((p) => p.key === phase)!.apiEndpoint(selectedCaseId),
+          {},
+        )
+        setter({ status: 'done', steps: result.steps })
+        return result
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : `${phase} 失败`
+        setter({ status: 'error', steps: [], error: msg })
+        throw err
+      }
+    },
+    [selectedCaseId],
+  )
+
+  const startExecution = useCallback(async () => {
+    if (!selectedCaseId) return
+    setExecute({ status: 'loading', steps: [] })
+    setActiveRunId(null)
+    try {
+      const result = await api.post<{ runId: string }>(`/execution/run/${selectedCaseId}`, {})
+      setActiveRunId(result.runId)
+      return result
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '启动执行失败'
+      setExecute({ status: 'error', steps: [], error: msg })
+    }
+  }, [selectedCaseId])
+
+  const handleAutoExecute = useCallback(async () => {
+    if (!selectedCaseId || executingAll) return
+    setExecutingAll(true)
+    try {
+      setTranslate({ status: 'loading', steps: [] })
+      const translateResult = await api.post<TranslateDecomposeResult>(
+        `/test-cases/${selectedCaseId}/translate`,
+        {},
+      )
+      setTranslate({ status: 'done', steps: translateResult.steps })
+
+      setDecompose({ status: 'loading', steps: [] })
+      const decomposeResult = await api.post<TranslateDecomposeResult>(
+        `/test-cases/${selectedCaseId}/decompose`,
+        {},
+      )
+      setDecompose({ status: 'done', steps: decomposeResult.steps })
+
+      setExecute({ status: 'loading', steps: [] })
+      setActiveRunId(null)
+      const execResult = await api.post<{ runId: string }>(`/execution/run/${selectedCaseId}`, {})
+      setActiveRunId(execResult.runId)
+    } catch {
+      setExecutingAll(false)
+    }
+  }, [selectedCaseId, executingAll])
+
+  const isAutoDisabled =
+    !selectedCaseId ||
+    executingAll ||
+    translate.status === 'loading' ||
+    decompose.status === 'loading' ||
+    execute.status === 'loading'
+
+  const canTranslate = selectedCaseId && translate.status === 'idle'
+  const canDecompose = selectedCaseId && translate.status === 'done' && decompose.status === 'idle'
+  const canExecute = selectedCaseId && decompose.status === 'done' && execute.status === 'idle'
+
+  useEffect(() => {
+    if (executingAll && activeRunId && isRunTerminal) {
+      setExecutingAll(false)
+    }
+  }, [executingAll, activeRunId, isRunTerminal])
+
+  const toggleStep = (order: number) => {
+    setExpandedSteps((prev) => {
+      const next = new Set(prev)
+      if (next.has(order)) next.delete(order)
+      else next.add(order)
+      return next
+    })
+  }
+
+  function renderPhaseStatus(status: PhaseStatus) {
+    switch (status) {
+      case 'idle':
+        return (
+          <span className="flex items-center gap-1.5 text-xs text-gray-400">
+            <Clock className="w-3.5 h-3.5" />
+            等待中
+          </span>
+        )
+      case 'loading':
+        return (
+          <span className="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            进行中
+          </span>
+        )
+      case 'done':
+        return (
+          <span className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+            <CheckCircle className="w-3.5 h-3.5" />
+            已完成
+          </span>
+        )
+      case 'error':
+        return (
+          <span className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+            <XCircle className="w-3.5 h-3.5" />
+            出错
+          </span>
+        )
+    }
+  }
+
+  function phaseHeaderBg(status: PhaseStatus): string {
+    switch (status) {
+      case 'idle': return 'bg-gray-50'
+      case 'loading': return 'bg-blue-50'
+      case 'done': return 'bg-green-50'
+      case 'error': return 'bg-red-50'
+    }
+  }
+
+  function renderStepsTable(steps: CaseStep[]) {
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-12">步骤</th>
+              <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400">操作</th>
+              <th className="text-left py-2 text-xs font-medium text-gray-400">预期结果</th>
+            </tr>
+          </thead>
+          <tbody>
+            {steps.map((step) => (
+              <tr key={step.order} className="border-b border-gray-50 last:border-0">
+                <td className="py-2 pr-4 text-gray-800 font-medium">{step.order}</td>
+                <td className="py-2 pr-4 text-gray-700">{step.actionText}</td>
+                <td className="py-2 text-gray-700">{step.expectedText}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  function renderPhaseCard(config: (typeof PHASE_CONFIG)[number]) {
+    const state =
+      config.key === 'translate'
+        ? translate
+        : config.key === 'decompose'
+          ? decompose
+          : execute
+
+    const { status: phaseStatus, steps: phaseSteps, error: phaseError } = state
+    const isExpanded = phaseStatus !== 'idle'
+    const PhaseIcon = config.icon
+
+    return (
+      <div
+        className={`rounded-lg border overflow-hidden transition-all duration-300 ${
+          phaseStatus === 'idle'
+            ? 'border-gray-200'
+            : phaseStatus === 'loading'
+              ? 'border-blue-300 shadow-sm'
+              : phaseStatus === 'done'
+                ? 'border-green-300'
+                : 'border-red-300'
+        }`}
+      >
+        <div className={`flex items-center gap-3 px-4 py-3 ${phaseHeaderBg(phaseStatus)}`}>
+          <span
+            className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold shrink-0 ${
+              phaseStatus === 'done'
+                ? 'bg-green-500 text-white'
+                : phaseStatus === 'loading'
+                  ? 'bg-blue-500 text-white'
+                  : phaseStatus === 'error'
+                    ? 'bg-red-500 text-white'
+                    : 'bg-gray-200 text-gray-500'
+            }`}
+          >
+            {phaseStatus === 'done' ? (
+              <CheckCircle className="w-4 h-4" />
+            ) : (
+              config.number
+            )}
+          </span>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <PhaseIcon
+                className={`w-4 h-4 ${
+                  phaseStatus === 'idle'
+                    ? 'text-gray-400'
+                    : phaseStatus === 'loading'
+                      ? 'text-blue-500'
+                      : phaseStatus === 'done'
+                        ? 'text-green-600'
+                        : 'text-red-500'
+                }`}
+              />
+              <h3
+                className={`text-sm font-semibold ${
+                  phaseStatus === 'idle'
+                    ? 'text-gray-600'
+                    : phaseStatus === 'loading'
+                      ? 'text-blue-700'
+                      : phaseStatus === 'done'
+                        ? 'text-green-700'
+                        : 'text-red-700'
+                }`}
+              >
+                {config.title}
+              </h3>
+            </div>
+            {phaseStatus === 'idle' && (
+              <p className="text-xs text-gray-400 mt-0.5">{config.description}</p>
+            )}
+          </div>
+
+          <div className="shrink-0">{renderPhaseStatus(phaseStatus)}</div>
+
+          {mode === 'manual' && phaseStatus === 'idle' && (
+            <button
+              type="button"
+              onClick={() => {
+                if (config.key === 'execute') {
+                  startExecution()
+                } else {
+                  startPhase(config.key)
+                }
+              }}
+              disabled={
+                config.key === 'translate'
+                  ? !canTranslate
+                  : config.key === 'decompose'
+                    ? !canDecompose
+                    : !canExecute
+              }
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors
+                enabled:bg-blue-600 enabled:text-white enabled:hover:bg-blue-700
+                disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+            >
+              <Play className="w-3 h-3" />
+              开始{config.title}
+            </button>
+          )}
+        </div>
+
+        {isExpanded && (
+          <div className="px-4 py-3 border-t border-gray-100">
+            {phaseStatus === 'loading' && config.key !== 'execute' && (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-500 mr-2" />
+                <span className="text-sm text-gray-500">{config.loadingLabel}</span>
+              </div>
+            )}
+
+            {phaseStatus === 'error' && (
+              <div className="flex items-start gap-2 py-2">
+                <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                <p className="text-sm text-red-600">{phaseError || '操作失败'}</p>
+              </div>
+            )}
+
+            {config.key !== 'execute' && phaseStatus === 'done' && phaseSteps.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-2">
+                  {config.successLabel} — 共 {phaseSteps.length} 步
+                </p>
+                {renderStepsTable(phaseSteps)}
+              </div>
+            )}
+
+            {config.key !== 'execute' && phaseStatus === 'done' && phaseSteps.length === 0 && (
+              <p className="text-sm text-gray-400 py-2 text-center">{config.successLabel}</p>
+            )}
+
+            {config.key === 'execute' && activeRunId && (
+              <div>
+                {runStatus && (
+                  <div
+                    className={`mb-3 px-3 py-2 rounded-lg text-sm font-medium border ${
+                      runStatus === 'passed'
+                        ? 'bg-green-50 text-green-700 border-green-200'
+                        : runStatus === 'failed'
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : runStatus === 'error'
+                            ? 'bg-orange-50 text-orange-700 border-orange-200'
+                            : 'bg-blue-50 text-blue-700 border-blue-200'
+                    }`}
+                  >
+                    {runStatus === 'running' || runStatus === 'pending' ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        执行中…
+                      </span>
+                    ) : runStatus === 'passed' ? (
+                      '✅ 测试通过'
+                    ) : runStatus === 'failed' ? (
+                      '❌ 测试失败'
+                    ) : (
+                      '⚠️ 执行出错'
+                    )}
+                  </div>
+                )}
+
+                {summary && summary.total > 0 && (
+                  <div className="mb-3">
+                    <div className="flex justify-between text-sm text-gray-600 mb-1">
+                      <span>
+                        步骤 {execCompletedCount}/{summary.total}
+                      </span>
+                      <span>{Math.round((execCompletedCount / summary.total) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500 ease-out"
+                        style={{
+                          width: `${(execCompletedCount / summary.total) * 100}%`,
+                          backgroundColor:
+                            runStatus === 'passed'
+                              ? '#22c55e'
+                              : runStatus === 'failed' || runStatus === 'error'
+                                ? '#ef4444'
+                                : '#3b82f6',
+                        }}
+                      />
+                    </div>
+                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                      <span className="text-green-600">通过 {summary.pass}</span>
+                      <span className="text-red-600">失败 {summary.fail}</span>
+                      <span className="text-orange-600">阻塞 {summary.blocked}</span>
+                    </div>
+                  </div>
+                )}
+
+                {runSteps.length > 0 && (
+                  <ul className="space-y-2">
+                    {runSteps.map((step) => {
+                      const cfg = stepStatusConfig[step.status] ?? defaultStepConfig
+                      const isExpanded = expandedSteps.has(step.stepOrder)
+                      const stepData = step as StepWithDetails
+                      return (
+                        <li
+                          key={step.stepOrder}
+                          className={`rounded-lg border overflow-hidden transition-colors ${cfg.class}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleStep(step.stepOrder)}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:opacity-80 transition-opacity"
+                          >
+                            <span className="shrink-0 text-current">{cfg.icon}</span>
+                            <span className="text-sm font-medium text-gray-800 shrink-0">
+                              步骤 {step.stepOrder}
+                            </span>
+                            <span className="flex-1 text-sm text-gray-600 truncate min-w-0">
+                              {stepData.actionText || ''}
+                            </span>
+                            <span
+                              className={`text-xs shrink-0 ${
+                                step.status === 'PASS'
+                                  ? 'text-green-600'
+                                  : step.status === 'FAIL'
+                                    ? 'text-red-600'
+                                    : step.status === 'running'
+                                      ? 'text-blue-600'
+                                      : 'text-gray-400'
+                              }`}
+                            >
+                              {cfg.label}
+                            </span>
+                            {stepData.screenshotUrl && (
+                              <img
+                                src={stepData.screenshotUrl}
+                                alt=""
+                                className="w-10 h-7 object-cover rounded border border-gray-300 shrink-0"
+                              />
+                            )}
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+                            )}
+                          </button>
+
+                          {isExpanded && (
+                            <div className="px-4 pb-4 pt-1 space-y-3 border-t border-gray-200">
+                              {stepData.actionText && (
+                                <div>
+                                  <span className="text-xs font-medium text-gray-500">操作</span>
+                                  <p className="text-sm text-gray-800 mt-0.5">{stepData.actionText}</p>
+                                </div>
+                              )}
+                              {stepData.expectedText && (
+                                <div>
+                                  <span className="text-xs font-medium text-gray-500">预期结果</span>
+                                  <p className="text-sm text-gray-800 mt-0.5">{stepData.expectedText}</p>
+                                </div>
+                              )}
+                              {stepData.error && (
+                                <div>
+                                  <span className="text-xs font-medium text-red-500">错误信息</span>
+                                  <p className="text-sm text-red-600 mt-0.5 font-mono">{stepData.error}</p>
+                                </div>
+                              )}
+                              {stepData.screenshotUrl && (
+                                <div>
+                                  <span className="text-xs font-medium text-gray-500">截图</span>
+                                  <button
+                                    type="button"
+                                    className="block mt-1"
+                                    onClick={() => setScreenshotModal(stepData.screenshotUrl!)}
+                                  >
+                                    <img
+                                      src={stepData.screenshotUrl}
+                                      alt={`步骤 ${step.stepOrder} 截图`}
+                                      className="max-w-sm rounded border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
+                                    />
+                                  </button>
+                                </div>
+                              )}
+                              {stepData.pythonCode && (
+                                <div>
+                                  <span className="text-xs font-medium text-gray-500">Python 代码</span>
+                                  <pre className="mt-1 bg-gray-900 text-gray-100 text-xs p-3 rounded-lg overflow-x-auto leading-relaxed">
+                                    <code>{stepData.pythonCode}</code>
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+
+                {runProgressLoading && runSteps.length === 0 && (
+                  <div className="flex items-center justify-center py-6 text-gray-400">
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    正在获取执行进度…
+                  </div>
+                )}
+
+                {runProgressError && (
+                  <div className="py-3 text-sm text-red-600 text-center">
+                    获取进度出错: {runProgressError}
+                  </div>
+                )}
+
+                {isRunTerminal && activeRunId && (
+                  <div className="mt-3 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/history/${activeRunId}`)}
+                      className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      查看详细报告
+                    </button>
+                  </div>
+                )}
+
+                {isRunTerminal && (generatedPythonCode || fixPrompt) && (
+                  <div className="mt-4 border-t border-gray-100 pt-4">
+                    {generatedPythonCode && (
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                            <Code2 className="w-4 h-4" />
+                            生成的 Python 代码
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(generatedPythonCode).then(() => {
+                                  setCopied(true)
+                                  setTimeout(() => setCopied(false), 2000)
+                                })
+                              }}
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              {copied ? '已复制' : '复制代码'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const blob = new Blob([generatedPythonCode], { type: 'text/x-python' })
+                                const url = URL.createObjectURL(blob)
+                                const a = document.createElement('a')
+                                a.href = url
+                                a.download = `test_case_${caseDetail?.id ?? 'export'}.py`
+                                document.body.appendChild(a)
+                                a.click()
+                                document.body.removeChild(a)
+                                URL.revokeObjectURL(url)
+                              }}
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              下载 .py
+                            </button>
+                          </div>
+                        </div>
+                        <pre className="bg-gray-900 text-gray-100 text-xs p-4 rounded-lg overflow-x-auto max-h-80 leading-relaxed">
+                          <code>{generatedPythonCode}</code>
+                        </pre>
+                      </div>
+                    )}
+
+                    {fixPrompt && (
+                      <div>
+                        <h4 className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-2">
+                          <Lightbulb className="w-4 h-4" />
+                          修复建议
+                        </h4>
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                          {fixPrompt}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (!caseIdFromUrl) {
+    return (
+      <div>
+        <h1 className="text-2xl font-semibold text-gray-800 mb-6">执行测试</h1>
+        <div className="text-center py-20">
+          <p className="text-lg text-gray-500 mb-6">请先在用例管理页面选取用例</p>
+          <button
+            onClick={() => navigate('/cases')}
+            className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Play className="w-4 h-4" />
+            前往用例管理
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div>
       <h1 className="text-2xl font-semibold text-gray-800 mb-6">执行测试</h1>
 
-      {/* ---- test-case selector + execute ---- */}
-      <section className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
-        {casesLoading ? (
-          <div className="flex items-center justify-center py-10">
+      {caseDetailLoading ? (
+        <section className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+          <div className="flex items-center justify-center py-6">
             <Loader2 className="w-5 h-5 animate-spin text-gray-400 mr-2" />
-            <span className="text-sm text-gray-500">加载测试用例...</span>
+            <span className="text-sm text-gray-500">加载测试用例详情...</span>
           </div>
-        ) : casesError ? (
-          <div className="text-center py-10 text-red-500">
-            <p className="text-sm">{casesError}</p>
+        </section>
+      ) : caseDetail && caseDetail.steps.length > 0 ? (
+        <section className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">测试用例步骤</h2>
+            <span className="text-xs text-gray-400">{caseDetail.name}</span>
           </div>
-        ) : testCases.length === 0 ? (
-          <div className="text-center py-10 text-gray-400">
-            <FileText className="w-10 h-10 mx-auto mb-2 text-gray-300" />
-            <p className="text-sm">暂无已分解的测试用例</p>
-            <p className="text-xs mt-1">请先在用例管理页面对用例进行分解操作</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-12">步骤</th>
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400">操作</th>
+                  <th className="text-left py-2 text-xs font-medium text-gray-400">预期结果</th>
+                </tr>
+              </thead>
+              <tbody>
+                {caseDetail.steps.map((step) => (
+                  <tr key={step.order} className="border-b border-gray-50 last:border-0">
+                    <td className="py-2 pr-4 text-gray-800 font-medium">{step.order}</td>
+                    <td className="py-2 pr-4 text-gray-700">{step.actionText}</td>
+                    <td className="py-2 text-gray-700">{step.expectedText}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ) : (
-          <>
-            <div className="flex items-end gap-4">
-              <div className="flex-1">
-                <label
-                  htmlFor="case-select"
-                  className="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  选择已分解的测试用例
-                </label>
-                <select
-                  id="case-select"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  value={selectedCaseId}
-                  onChange={(e) => setSelectedCaseId(e.target.value)}
-                >
-                  <option value="">-- 请选择 --</option>
-                  {testCases.map((tc) => (
-                    <option key={tc.id} value={tc.id}>
-                      {tc.name}
-                      {tc.productLine ? ` (${tc.productLine})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        </section>
+      ) : null}
 
-              <button
-                className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                onClick={handleExecute}
-                disabled={!selectedCaseId || executing}
-              >
-                {executing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4" />
-                )}
-                {executing ? '启动中...' : '执行'}
-              </button>
-            </div>
-
-            {executeError && (
-              <p className="mt-2 text-sm text-red-600">{executeError}</p>
-            )}
-          </>
-        )}
+      <section className="mb-6">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-500 mr-1">执行模式</span>
+          <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setMode('auto')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                mode === 'auto'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              一键执行
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('manual')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                mode === 'manual'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Play className="w-3.5 h-3.5" />
+              分步执行
+            </button>
+          </div>
+        </div>
       </section>
 
-      {/* ---- execution progress ---- */}
-      {runId && (
-        <section className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-medium text-gray-800">执行进度</h2>
-            {loading && (
-              <span className="flex items-center gap-1.5 text-sm text-blue-600">
-                <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                更新中
-              </span>
-            )}
-          </div>
+      <section className="space-y-4 mb-6">
+        {PHASE_CONFIG.map((config) => (
+          <div key={config.key}>{renderPhaseCard(config)}</div>
+        ))}
+      </section>
 
-          {/* status banner */}
-          <div
-            className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium border ${
-              status === 'passed'
-                ? 'bg-green-50 text-green-700 border-green-200'
-                : status === 'failed'
-                  ? 'bg-red-50 text-red-700 border-red-200'
-                  : status === 'error'
-                    ? 'bg-orange-50 text-orange-700 border-orange-200'
-                    : 'bg-blue-50 text-blue-700 border-blue-200'
+      {mode === 'auto' && (
+        <section className="mb-6">
+          <button
+            type="button"
+            onClick={handleAutoExecute}
+            disabled={isAutoDisabled}
+            className={`w-full flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold rounded-lg transition-all duration-200 ${
+              isAutoDisabled
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm hover:shadow-md active:scale-[0.98]'
             }`}
           >
-            {!status || status === 'running' || status === 'pending' ? (
-              <span className="flex items-center gap-2">
+            {executingAll ? (
+              <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 执行中…
-              </span>
-            ) : status === 'passed' ? (
-              '✅ 测试通过'
-            ) : status === 'failed' ? (
-              '❌ 测试失败'
+              </>
             ) : (
-              '⚠️ 执行出错'
+              <>
+                <Zap className="w-4 h-4" />
+                一键执行
+              </>
             )}
-          </div>
-
-          {/* progress bar */}
-          {summary && summary.total > 0 && (
-            <div className="mb-4">
-              <div className="flex justify-between text-sm text-gray-600 mb-1">
-                <span>
-                  步骤 {completedCount}/{summary.total}
-                </span>
-                <span>{Math.round((completedCount / summary.total) * 100)}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500 ease-out"
-                  style={{
-                    width: `${(completedCount / summary.total) * 100}%`,
-                    backgroundColor:
-                      status === 'passed'
-                        ? '#22c55e'
-                        : status === 'failed' || status === 'error'
-                          ? '#ef4444'
-                          : '#3b82f6',
-                  }}
-                />
-              </div>
-
-              {/* summary counters */}
-              <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                <span className="text-green-600">通过 {summary.pass}</span>
-                <span className="text-red-600">失败 {summary.fail}</span>
-                <span className="text-orange-600">阻塞 {summary.blocked}</span>
-              </div>
-            </div>
-          )}
-
-          {/* step list */}
-          {steps.length > 0 && (
-            <ul className="space-y-2">
-              {steps.map((step) => {
-                const cfg = stepStatusConfig[step.status] ?? defaultStepConfig
-                return (
-                  <li
-                    key={step.stepOrder}
-                    className={`flex items-start gap-3 p-3 rounded-lg border ${cfg.class}`}
-                  >
-                    <span className="mt-0.5 shrink-0 text-current">
-                      {cfg.icon}
-                    </span>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-800">
-                          步骤 {step.stepOrder}
-                        </span>
-                        <span
-                          className={`text-xs ${
-                            step.status === 'PASS'
-                              ? 'text-green-600'
-                              : step.status === 'FAIL'
-                                ? 'text-red-600'
-                                : step.status === 'running'
-                                  ? 'text-blue-600'
-                                  : 'text-gray-400'
-                          }`}
-                        >
-                          {cfg.label}
-                        </span>
-                      </div>
-
-                      {step.error && (
-                        <p className="text-sm text-red-600 mt-1 font-mono text-xs leading-relaxed">
-                          {step.error}
-                        </p>
-                      )}
-                    </div>
-
-                    {step.screenshotUrl && (
-                      <button
-                        type="button"
-                        className="shrink-0"
-                        onClick={() => setScreenshotModal(step.screenshotUrl!)}
-                      >
-                        <img
-                          src={step.screenshotUrl}
-                          alt={`步骤 ${step.stepOrder} 截图`}
-                          className="w-20 h-14 object-cover rounded border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
-                        />
-                      </button>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-
-          {/* initial loading */}
-          {loading && steps.length === 0 && (
-            <div className="flex items-center justify-center py-10 text-gray-400">
-              <Loader2 className="w-5 h-5 animate-spin mr-2" />
-              正在获取执行进度…
-            </div>
-          )}
-
-          {/* polling error */}
-          {error && (
-            <div className="py-4 text-sm text-red-600 text-center">
-              获取进度出错: {error}
-            </div>
-          )}
+          </button>
         </section>
       )}
 
-      {/* ---- generated code & fix prompt (terminal state) ---- */}
-      {isTerminal && (generatedPythonCode || fixPrompt) && (
-        <section className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
-          <h2 className="text-lg font-medium text-gray-800 mb-3">执行详情</h2>
-
-          {generatedPythonCode && (
-            <div className="mb-4">
-              <h3 className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-2">
-                <Code2 className="w-4 h-4" />
-                生成的 Python 代码
-              </h3>
-              <pre className="bg-gray-900 text-gray-100 text-xs p-4 rounded-lg overflow-x-auto max-h-80 leading-relaxed">
-                <code>{generatedPythonCode}</code>
-              </pre>
-            </div>
-          )}
-
-          {fixPrompt && (
-            <div>
-              <h3 className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-2">
-                <Lightbulb className="w-4 h-4" />
-                修复建议
-              </h3>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                {fixPrompt}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* ---- recent executions ---- */}
-      <section className="bg-white border border-gray-200 rounded-lg p-4">
-        <h2 className="text-lg font-medium text-gray-800 mb-3">最近执行</h2>
-
-        {runsLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-          </div>
-        ) : recentRuns.length === 0 ? (
-          <p className="text-sm text-gray-400 py-8 text-center">暂无执行记录</p>
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {recentRuns.slice(0, 10).map((run) => (
-              <li key={run.runId}>
-                <button
-                  type="button"
-                  className="flex items-center justify-between w-full px-3 py-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                  onClick={() => setRunId(run.runId)}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <FileText className="w-4 h-4 text-gray-400 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">
-                        {run.caseId}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {formatDate(run.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-3">
-                    <RunStatusBadge status={run.status} />
-                    <ChevronRight className="w-4 h-4 text-gray-300" />
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* ---- screenshot modal ---- */}
       {screenshotModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -450,40 +889,4 @@ export default function ExecutionPage() {
       )}
     </div>
   )
-}
-
-/* ---------- sub-components ---------- */
-
-function RunStatusBadge({ status }: { status: string }) {
-  const colorClass: Record<string, string> = {
-    running: 'bg-blue-100 text-blue-700 border-blue-200',
-    passed: 'bg-green-100 text-green-700 border-green-200',
-    failed: 'bg-red-100 text-red-700 border-red-200',
-    error: 'bg-orange-100 text-orange-700 border-orange-200',
-  }
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${
-        colorClass[status] ?? 'bg-gray-100 text-gray-600 border-gray-200'
-      }`}
-    >
-      {runStatusLabel[status] ?? status}
-    </span>
-  )
-}
-
-/* ---------- utils ---------- */
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
 }
