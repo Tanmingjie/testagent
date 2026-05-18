@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 
 export interface CliResult {
   success: boolean;
@@ -9,28 +9,23 @@ export interface CliResult {
 const CLI = ['npx', 'playwright-cli'];
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-/**
- * Execute a playwright-cli command synchronously.
- * Uses child_process.execSync under the hood.
- */
 export function execCli(args: string[]): CliResult {
   try {
-    const fullCmd = [...CLI, ...args].join(' ');
-    const stdout = execSync(fullCmd, {
+    const result = spawnSync(CLI[0], [...CLI.slice(1), ...args], {
       encoding: 'utf-8',
       timeout: DEFAULT_TIMEOUT_MS,
     });
-    return { success: true, stdout: stdout.trim(), stderr: '' };
+    return {
+      success: result.status === 0,
+      stdout: (result.stdout || '').trim(),
+      stderr: (result.stderr || '').trim(),
+    };
   } catch (error) {
     const err = error as Error;
     return { success: false, stdout: '', stderr: err.message };
   }
 }
 
-/**
- * Execute a playwright-cli command asynchronously.
- * Uses Bun.spawn with configurable timeout.
- */
 export async function execCliAsync(args: string[], timeoutMs = DEFAULT_TIMEOUT_MS): Promise<CliResult> {
   try {
     const proc = Bun.spawn([...CLI, ...args], {
