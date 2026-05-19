@@ -1,7 +1,8 @@
 # TestAgent 架构设计文档
 
-> 版本: 1.0.0 | AI 驱动的端到端测试自动化平台
+> 版本: 1.1.0 | AI 驱动的端到端测试自动化平台
 > 输入: 中文文本测试用例 → 输出: Playwright Python 代码 + 测试报告
+> 最后更新: 2026-05-19 — 执行引擎重大优化 (详见 §5 和 §6)
 
 ---
 
@@ -220,7 +221,9 @@ knowledge {
 │    ┌──────────────────────────────────────────────────────────────┐  │
 │    │ a. buildUserPrompt()                                         │  │
 │    │    ← 知识库 MD (产品知识库)                                   │  │
-│    │    ← 页面摘要 (URL, 标题, 所有元素 ref+role+name)            │  │
+│    │    ← 页面摘要 (URL/标题/元素，按优先级排序截断 Top 40)       │  │
+│    │      优先级: button/textbox=5 > link/menuitem=4 > combobox=3 │  │
+│    │      有名字元素 +3 分，确保交互目标不被容器元素挤出           │  │
 │    │    ← 当前步骤 (actionText, expectedText)                      │  │
 │    │    ← 之前的交互记录 (步骤序号 + CLI 命令 + 结果)              │  │
 │    │    ← 重试错误信息 (第二次尝试时)                               │  │
@@ -231,20 +234,41 @@ knowledge {
 │    │    user: buildUserPrompt() 的输出                             │  │
 │    │    → JSON { cliCommand, pythonCode, targetElement, reasoning }│  │
 │    │    ★ 一次调用同时产出 CLI 命令 + Python 代码，零额外 token   │  │
+│    │    ★ cliCommand 绝不空: ref 不可用时用 run-code + JS 定位器  │  │
 │    ├──────────────────────────────────────────────────────────────┤  │
-│    │ c. CLI Execution                                             │  │
+│    │ c. Command Validation                                        │  │
+│    │    validateCommandMatchesAction(cmd, actionText)              │  │
+│    │    → 等待/检查步骤放行所有命令 (含 assert)                    │  │
+│    │    → run-code 直接放行 (动作类型在 JS 代码中)                 │  │
+│    │    → fill/type 对应"输入"，click 对应"点击"                   │  │
+│    ├──────────────────────────────────────────────────────────────┤  │
+│    │ d. CLI Execution                                             │  │
 │    │    parseCliCommand(cliCommand) → { action, args }            │  │
 │    │    spawnSync('npx', ['playwright-cli', action, ...args])     │  │
+│    │    assert: 三层回退 (snapshot → innerText → CJK 模糊匹配)    │  │
+│    │    run-code: 在浏览器中执行任意 Playwright JS                │  │
 │    │    src/executor/cli-runner.ts  (使用 spawnSync 防 shell 注入) │  │
 │    ├──────────────────────────────────────────────────────────────┤  │
-│    │ d. Screenshot                                                │  │
+│    │ e. Post-Action Verification                                  │  │
+│    │    snapshot → 检查错误模式 (验证码/安全验证/连接失败)        │  │
+│    │    navigate: 额外验证页面内容非空                            │  │
+│    ├──────────────────────────────────────────────────────────────┤  │
+│    │ f. Screenshot                                                │  │
 │    │    screenshot --full-page --filename data/screenshots/step-N  │  │
 │    │    文件名格式: step-{order}-{timestamp}.png                   │  │
 │    ├──────────────────────────────────────────────────────────────┤  │
-│    │ e. Verification (启发性)                                     │  │
-│    │    CLI exit code === 0 → PASS                                │  │
+│    │ g. Failure Classification                                    │  │
+│    │    CLI exit code === 0 且 verifyAfterAction 通过 → PASS      │  │
 │    │    匹配 BLOCK_PATTERNS (timeout/CAPTCHA/验证码) → BLOCK      │  │
-│    │    其余 → FAIL (自动重试一次)                                │  │
+│    │    其余 → FAIL → 触发自愈 (attemptSelfHeal)                   │  │
+│    ├──────────────────────────────────────────────────────────────┤  │
+│    │ h. Self-Heal (自愈) — 仅在 FAIL 时触发                       │  │
+│    │    assert 失败: 等待 1.5s → 重试 innerText + 模糊匹配        │  │
+│    │                (不调用自愈 LLM，不做 precondition)            │  │
+│    │    空命令失败: 跳过 precondition → 直接当前页 regenerate     │  │
+│    │    其他失败: LLM 生成 precondition → 执行 → retry origCmd    │  │
+│    │              → 仍失败 → 刷新快照 → regenerate                │  │
+│    │    最多执行: 1 precondition + 1 regenerate                   │  │
 │    └──────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
     │
@@ -341,6 +365,68 @@ DELETE /api/test-cases/:id
   → 返回 200 { deleted: true }   (非 204 No Content)
   → 前端统一 JSON 响应处理，减少特判逻辑
 ```
+
+### 6.6 元素截断: 优先级排序 (2026-05-19 新增)
+
+```
+parseAccessibilityTree() → 元素按 DOM 顺序输出 (顶层容器在前)
+  ↓
+buildUserPrompt() → sort by priority antes de slice(0, 40)
+  ↓
+优先级权重: button/textbox=5, link/menuitem=4, combobox/searchbox/checkbox=3
+            有名字元素额外 +3 分
+```
+
+**为何重要**: DOM 顺序的前 40 个元素通常是 `generic/navigation/listitem` 容器。排序后 "登录" 按钮 (button=5, named=3 → 8 分) 排在 "百度首页" 链接 (link=4, named=3 → 7 分) 之前，确保 LLM 看到真正的交互目标。
+
+### 6.7 assert 命令: 三层匹配 (2026-05-19 新增)
+
+```
+assert "用户名或密码错误"
+  ↓
+① snapshot 子串匹配 (accessibility tree JSON → .toLowerCase().includes())
+  ↓ (未找到)
+② eval('document.body.innerText') 子串匹配 (捕获 toast/动态文本)
+  ↓ (仍未找到)
+③ CJK 字符模糊匹配: 逐字拆分 → 命中率 ≥ 60% → PASS
+   "用户名或密码错误" → [用,户,名,或,密,码,错,误]
+   页面文本 "...用户名或密码有误..." → 7/8 = 88% → PASS
+```
+
+**为何需要**: 错误提示通常为 `alert/toast` 角色，可能不在无障碍树中; 且测试人员撰写的"预期结果"可能用词与界面不完全一致 (如"错误" vs "有误")。
+
+### 6.8 run-code 命令: 兜底定位 (2026-05-19 新增)
+
+```
+元素 ref 不在页面摘要中
+  ↓
+LLM 生成 run-code 命令 (替代 ref 定位)
+  run-code page.getByText('用户名登录').click()
+  run-code page.getByPlaceholder('手机号/用户名/邮箱').fill('admin')
+  run-code page.getByRole('button', { name: '登录' }).click()
+  ↓
+spawnSync('npx', ['playwright-cli', 'run-code', '<JS代码>'])
+  → 在浏览器会话中直接执行 Playwright JS API
+```
+
+**为何需要**: 页面摘要只展示 Top 40 个元素，部分交互元素可能被截断。`run-code` 通过 Playwright 的文本/角色/占位符定位器绕过 ref 依赖，保证 LLM 总能产出可执行命令。
+
+### 6.9 自愈流程: 按失败类型分流 (2026-05-19 重构)
+
+```
+step FAIL
+  ↓
+┌─ assert 失败 → 等待 1.5s → 重试 innerText + 模糊匹配 → PASS/FAIL
+│   (不调用自愈 LLM，不做 precondition。assert 是只读操作，页面状态已正确)
+│
+├─ 空命令失败 → 刷新当前页快照 → 直接 regenerate
+│   (跳过 precondition，避免导航/点击破坏页面状态)
+│
+└─ 其他失败 → LLM 生成 precondition → 执行 → retry origCmd
+              → 仍失败 → 刷新快照 → regenerate
+```
+
+**关键改动**: 之前 assert 失败会触发 LLM 生成 precondition (如重复点击登录按钮)，浪费 20-30s 且可能破坏页面状态。现在按失败类型分流，assert 和空命令走轻量通道。
 
 ---
 
@@ -519,7 +605,8 @@ data/                # SQLite DB, 截图, 导入的 JSON 备份
 | `src/executor/page-analyzer.ts` | 页面分析，无障碍树解析，flattenTree |
 | `src/executor/cli-commands.ts` | Playwright CLI 命令封装 |
 | `src/executor/cli-runner.ts` | spawnSync 执行子进程 |
-| `src/executor/codegen-prompt.md` | LLM 代码生成系统提示词 |
+| `src/executor/codegen-prompt.md` | LLM 代码生成系统提示词 (含 run-code 兜底规则) |
+| `src/executor/selfheal-prompt.md` | LLM 自愈系统提示词 |
 | `src/executor/python-code-generator.ts` | Python 代码聚合生成 |
 | `src/executor/report-builder.ts` | 报告 + fixPrompt + 建议 |
 | `src/knowledge/loader.ts` | parseFrontmatter + MD 文件加载 |
