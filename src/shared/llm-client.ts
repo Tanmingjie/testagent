@@ -150,10 +150,11 @@ export class LlmClient {
 
           try {
             const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta?.content;
-            if (delta) {
-              fullText += delta;
-              yield delta;
+            const delta = parsed.choices?.[0]?.delta;
+            const chunk = delta?.content || delta?.reasoning_content;
+            if (chunk) {
+              fullText += chunk;
+              yield chunk;
             }
           } catch {}
         }
@@ -200,11 +201,12 @@ export class LlmClient {
     }
 
     const data = (await response.json()) as {
-      choices: { message: { content: string } }[];
+      choices: { message: { content: string; reasoning_content?: string } }[];
       usage: { total_tokens: number };
     };
 
-    const content = data.choices?.[0]?.message?.content ?? '';
+    const msg = data.choices?.[0]?.message;
+    const content = msg?.content || msg?.reasoning_content || '';
     const tokens = data.usage?.total_tokens ?? 0;
     this.tokensUsed += tokens;
 

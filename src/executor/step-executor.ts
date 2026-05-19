@@ -298,20 +298,57 @@ function parseLLMResponse(content: string): LLMCodeGenOutput {
   try {
     const parsed = JSON.parse(json) as Record<string, unknown>;
 
-    return {
-      cliCommand: typeof parsed.cliCommand === 'string' ? parsed.cliCommand : '',
-      pythonCode: typeof parsed.pythonCode === 'string' ? parsed.pythonCode : '',
-      targetElement: parsed.targetElement
-        ? {
-            ref: String((parsed.targetElement as Record<string, unknown>).ref || ''),
-            role: String((parsed.targetElement as Record<string, unknown>).role || ''),
-            name: String((parsed.targetElement as Record<string, unknown>).name || ''),
-            matchedTerm: (parsed.targetElement as Record<string, unknown>).matchedTerm as string | undefined,
-            pythonLocator: (parsed.targetElement as Record<string, unknown>).pythonLocator as string | undefined,
-          }
-        : undefined,
-      reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
-    };
+    let cliCommand = typeof parsed.cliCommand === 'string' ? parsed.cliCommand : '';
+    let pythonCode = typeof parsed.pythonCode === 'string' ? parsed.pythonCode : '';
+    let targetElement = parsed.targetElement
+      ? {
+          ref: String((parsed.targetElement as Record<string, unknown>).ref || ''),
+          role: String((parsed.targetElement as Record<string, unknown>).role || ''),
+          name: String((parsed.targetElement as Record<string, unknown>).name || ''),
+          matchedTerm: (parsed.targetElement as Record<string, unknown>).matchedTerm as string | undefined,
+          pythonLocator: (parsed.targetElement as Record<string, unknown>).pythonLocator as string | undefined,
+        }
+      : undefined;
+    let reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : '';
+
+    if (!cliCommand && reasoning) {
+      try {
+        const nested = JSON.parse(reasoning) as Record<string, unknown>;
+        cliCommand = typeof nested.cliCommand === 'string' ? nested.cliCommand : cliCommand;
+        pythonCode = typeof nested.pythonCode === 'string' ? nested.pythonCode : pythonCode;
+        if (!targetElement && nested.targetElement) {
+          targetElement = {
+            ref: String((nested.targetElement as Record<string, unknown>).ref || ''),
+            role: String((nested.targetElement as Record<string, unknown>).role || ''),
+            name: String((nested.targetElement as Record<string, unknown>).name || ''),
+            matchedTerm: undefined,
+            pythonLocator: undefined,
+          };
+        }
+        console.log(`[LLM-PARSE] extracted cliCommand from nested reasoning JSON`);
+      } catch {
+        const inlineJson = reasoning.match(/```(?:json)?\s*({[\s\S]*?})\s*```/);
+        if (inlineJson) {
+          try {
+            const nested = JSON.parse(inlineJson[1]) as Record<string, unknown>;
+            cliCommand = typeof nested.cliCommand === 'string' ? nested.cliCommand : cliCommand;
+            pythonCode = typeof nested.pythonCode === 'string' ? nested.pythonCode : pythonCode;
+            if (!targetElement && nested.targetElement) {
+              targetElement = {
+                ref: String((nested.targetElement as Record<string, unknown>).ref || ''),
+                role: String((nested.targetElement as Record<string, unknown>).role || ''),
+                name: String((nested.targetElement as Record<string, unknown>).name || ''),
+                matchedTerm: undefined,
+                pythonLocator: undefined,
+              };
+            }
+            console.log(`[LLM-PARSE] extracted cliCommand from reasoning code block`);
+          } catch { /* reasoning is plain text, keep as-is */ }
+        }
+      }
+    }
+
+    return { cliCommand, pythonCode, targetElement, reasoning };
   } catch {
     return {
       cliCommand: '',
