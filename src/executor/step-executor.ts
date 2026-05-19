@@ -31,9 +31,15 @@ export async function executeStep(
     let pythonCode = llmOutput.pythonCode;
 
     if (llmOutput.cliCommand) {
-      const cliResult = await executeCliAction(cli, llmOutput.cliCommand);
-      cliOk = cliResult.success;
-      error = cliResult.error;
+      const mismatch = validateCommandMatchesAction(llmOutput.cliCommand, actionText);
+      if (mismatch) {
+        cliOk = false;
+        error = mismatch;
+      } else {
+        const cliResult = await executeCliAction(cli, llmOutput.cliCommand);
+        cliOk = cliResult.success;
+        error = cliResult.error;
+      }
 
       if (cliOk) {
         const verifyResult = await verifyAfterAction(cli, expectedText, llmOutput.cliCommand);
@@ -368,6 +374,25 @@ async function verifyAfterAction(
   }
 
   return { verified: true };
+}
+
+const MISM = '命令类型与步骤不符，请重新生成';
+
+function validateCommandMatchesAction(command: string, actionText: string): string | null {
+  const cmdAction = command.split(/\s+/)[0]?.toLowerCase();
+  const text = actionText.toLowerCase();
+
+  if (text.includes('输入') || text.includes('键入') || text.includes('填写')) {
+    return (cmdAction === 'fill' || cmdAction === 'type') ? null : `${MISM}: 步骤需要fill/type，但LLM生成了${cmdAction}`;
+  }
+  if (text.includes('点击') || text.includes('单击')) {
+    return cmdAction === 'click' ? null : `${MISM}: 步骤需要click，但LLM生成了${cmdAction}`;
+  }
+  if (text.includes('打开') || text.includes('导航') || text.includes('访问')) {
+    return (cmdAction === 'navigate' || cmdAction === 'goto' || cmdAction === 'click') ? null : `${MISM}: 步骤需要navigate/click，但LLM生成了${cmdAction}`;
+  }
+
+  return null;
 }
 
 function pageSummaryFromSnapshot(raw: string): PageSummary {
