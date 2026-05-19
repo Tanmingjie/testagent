@@ -38,6 +38,8 @@
 
 ## 支持的 CLI 命令格式
 
+**只有以下命令可以用于 cliCommand 字段。`expect` 不是 CLI 命令，严禁在 cliCommand 中使用。**
+
 | 动作 | 格式 | 示例 |
 |------|------|------|
 | 点击 | `click <ref>` | `click e5` |
@@ -46,6 +48,8 @@
 | 导航 | `navigate <url>` | `navigate https://example.com` |
 | 按键 | `press <key>` | `press Enter` |
 | 截图 | `screenshot` | `screenshot` |
+
+**严禁**在 cliCommand 中使用 `expect`、`waitFor`、`assert` 等断言命令 — 这些只出现在 pythonCode 中。
 
 ## Python 代码生成规则
 
@@ -64,7 +68,7 @@
 
 4. **导航**使用 `page.goto(url)`
 
-5. **断言使用 Playwright 的 expect API**：
+5. **断言使用 Playwright 的 expect API**（注意：这些只出现在 pythonCode 中，**严禁**用作 cliCommand）：
    - `expect(page).to_have_title(text)`
    - `expect(page.get_by_role(...)).to_be_visible()`
    - `expect(page.get_by_role(...)).to_have_text(text)`
