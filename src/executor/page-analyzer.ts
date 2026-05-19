@@ -15,7 +15,7 @@ export async function analyzePage(
   await new Promise((r) => setTimeout(r, 800));
   execCli(['mousewheel', '0', '-10000']);
 
-  const snapshotResult = execCli(['snapshot', '--boxes']);
+  const snapshotResult = execCli(['--raw', 'snapshot', '--boxes']);
   const raw = snapshotResult.stdout || snapshotResult.stderr || '';
 
   const elements = parseAccessibilityTree(raw);
@@ -43,6 +43,7 @@ export function parseAccessibilityTree(raw: string): PageElement[] {
   const linePattern = /(e\d+)\s*[:\[=]\s*["']?(\w+)["']?\s+[""](.+?)[""]/;
   const bracketPattern = /(e\d+)\s*\[\s*(\w+)\s+[""](.+?)[""]/;
   const refPattern = /(\w+)\s+[""](.+?)[""]\s+\[ref=(e\d+)\]/;
+  const refOnlyPattern = /(\w+)\s+\[ref=(e\d+)\]/;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -59,6 +60,15 @@ export function parseAccessibilityTree(raw: string): PageElement[] {
       const [, role, name, ref] = refMatch;
       if (INTERACTIVE_ROLES.has(role)) {
         elements.push({ ref, role, name });
+      }
+      continue;
+    }
+    const refOnly = trimmed.match(refOnlyPattern);
+    if (refOnly) {
+      const [, role, ref] = refOnly;
+      if (INTERACTIVE_ROLES.has(role)) {
+        const nameMatch = trimmed.match(/[""](.+?)[""]/);
+        elements.push({ ref, role, name: nameMatch?.[1] || '' });
       }
     }
   }
