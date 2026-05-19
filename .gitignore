@@ -6,6 +6,7 @@ data/*.db*
 data/screenshots/*.png
 data/generated/
 data/cases/
+data/logs/
 .playwright/
 .playwright-cli/
 .sisyphus/evidence/
