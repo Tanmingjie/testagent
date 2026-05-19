@@ -127,7 +127,7 @@ export async function executeTestCase(
       const isAssertStep = step.actionText.includes('验证') || step.actionText.includes('断言') || step.actionText.includes('检查');
 
       if (!isAssertStep) {
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 500));
 
         const tabsResult = execCli(['tabs']);
         if (tabsResult.success && tabsResult.stdout.match(/^\s*-\s*1:/m)) {
@@ -350,9 +350,18 @@ async function executeCliAction(cli: CliCommands, cliCommand: string): Promise<C
       case 'assert':
         {
           const text = args.join(' ');
+          const lower = text.toLowerCase();
+
           const snap = execCli(['--raw', 'snapshot']);
           const pageContent = (snap.stdout || '').toLowerCase();
-          const found = pageContent.includes(text.toLowerCase());
+          let found = pageContent.includes(lower);
+
+          if (!found) {
+            const bodyEval = execCli(['eval', '() => document.body.innerText']);
+            const bodyText = (bodyEval.stdout || '').toLowerCase();
+            found = bodyText.includes(lower);
+          }
+
           result = { success: found, stdout: found ? `"${text}" found on page` : '', stderr: found ? '' : `"${text}" not found on page` };
         }
         break;
@@ -426,6 +435,11 @@ function validateCommandMatchesAction(command: string, actionText: string): stri
   const cmdAction = command.split(/\s+/)[0]?.toLowerCase();
   const text = actionText.toLowerCase();
 
+  // 等待/检查步骤不做动作类型限制
+  if (text.includes('等待') || text.includes('确认') || text.includes('确保')) {
+    return null;
+  }
+
   if (text.includes('输入') || text.includes('键入') || text.includes('填写')) {
     return (cmdAction === 'fill' || cmdAction === 'type') ? null : `${MISM}: 步骤需要fill/type，但LLM生成了${cmdAction}`;
   }
@@ -461,13 +475,37 @@ async function attemptSelfHeal(
   interactionLog: Interaction[],
 ): Promise<{ result: StepResult; interaction: Interaction } | null> {
   console.log(`[SELFHEAL] step=${step.order} origCmd="${failed.interaction.cliCommand}" error="${failed.interaction.error}"`);
-  const healingPrompt = buildSelfHealPrompt(failed, step, pageSummary, context);
-  const messages = [
-    { role: 'system', content: SELFHEAL_SYSTEM_PROMPT },
-    { role: 'user', content: healingPrompt },
-  ];
+
+  const origCmd = failed.interaction.cliCommand?.trim();
+  const isAssertFailure = origCmd?.startsWith('assert') && failed.interaction.error?.includes('not found on page');
+
+  if (isAssertFailure) {
+    const assertText = origCmd!.split(/\s+/).slice(1).join(' ');
+    console.log(`[SELFHEAL] assert retry with delay + innerText fallback, text="${assertText}"`);
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const lower = assertText.toLowerCase();
+    const bodyEval = execCli(['eval', '() => document.body.innerText']);
+    const bodyText = (bodyEval.stdout || '').toLowerCase();
+    const found = bodyText.includes(lower);
+
+    const screenshotPath = await captureScreenshot(context.cli, step.order);
+    if (found) {
+      return {
+        result: { stepOrder: step.order, status: 'PASS', screenshotPath, pythonCode: failed.interaction.pythonCode },
+        interaction: { ...failed.interaction, passed: true, error: undefined, screenshotPath },
+      };
+    }
+    console.log(`[SELFHEAL] assert text still not found in innerText, giving up`);
+    return null;
+  }
 
   try {
+    const healingPrompt = buildSelfHealPrompt(failed, step, pageSummary, context);
+    const messages = [
+      { role: 'system', content: SELFHEAL_SYSTEM_PROMPT },
+      { role: 'user', content: healingPrompt },
+    ];
     const response = await context.llm.chatCompletion(messages, {
       responseFormat: { type: 'json_object' },
     });
@@ -486,7 +524,6 @@ async function attemptSelfHeal(
     const snapshotAfter = execCli(['--raw', 'snapshot', '--boxes']);
     const freshPageText = (snapshotAfter.stdout || snapshotAfter.stderr || '').toLowerCase();
 
-    const origCmd = failed.interaction.cliCommand;
     if (origCmd) {
       const retryResult = await executeCliAction(context.cli, origCmd);
       if (retryResult.success) {
