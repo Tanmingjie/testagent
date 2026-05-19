@@ -193,13 +193,25 @@ function buildUserPrompt(
   lines.push(`标题: ${pageSummary.title}`);
   lines.push('');
   lines.push('### 可交互元素');
-  const shown = pageSummary.elements.slice(0, 40);
+  const ELEMENT_PRIORITY: Record<string, number> = {
+    button: 5, textbox: 5, link: 4, menuitem: 4,
+    combobox: 3, listbox: 3, searchbox: 3, checkbox: 3, radio: 3,
+    tab: 2, option: 2, switch: 2, slider: 2, spinbutton: 2,
+    generic: 0, img: 0, heading: 0, paragraph: 0,
+  };
+  const sorted = [...pageSummary.elements].sort((a, b) => {
+    const aScore = (a.name ? 3 : 0) + (ELEMENT_PRIORITY[a.role] ?? 0);
+    const bScore = (b.name ? 3 : 0) + (ELEMENT_PRIORITY[b.role] ?? 0);
+    return bScore - aScore;
+  });
+  const MAX_ELEMENTS = 40;
+  const shown = sorted.slice(0, MAX_ELEMENTS);
   for (const el of shown) {
     const matchInfo = el.matchedTerm ? ` (匹配术语: ${el.matchedTerm})` : '';
     lines.push(`- ${el.ref}: ${el.role} "${el.name}"${matchInfo}`);
   }
-  if (pageSummary.elements.length > 40) {
-    lines.push(`- ... (共 ${pageSummary.elements.length} 个元素，仅显示前 40)`);
+  if (sorted.length > MAX_ELEMENTS) {
+    lines.push(`- ... (共 ${sorted.length} 个元素，按优先级排序，仅显示前 ${MAX_ELEMENTS})`);
   }
   lines.push('');
 
