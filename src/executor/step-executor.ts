@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { TestCase, TestStep, PageSummary, Interaction, StepResult } from '@shared/types';
 import type { LlmClient } from '@shared/llm-client';
 import type { ExecutionContext, CliCommands, LLMCodeGenOutput } from './types';
-import { analyzePage } from './page-analyzer';
+import { analyzePage, parseAccessibilityTree } from './page-analyzer';
 import { CliSession } from './cli-session';
 import { execCli } from './cli-runner';
 
@@ -109,13 +109,22 @@ export async function executeTestCase(
   const interactionLog: Interaction[] = [];
 
   try {
-    const pageSummary = await analyzePage(cli.navigate, baseUrl);
+    let pageSummary = await analyzePage(cli.navigate, baseUrl);
     const context: ExecutionContext = { cli, llm, productLine, baseUrl, knowledgeContent, testCase };
 
     for (const step of testCase.steps) {
       const { result, interaction } = await executeStep(step, context, pageSummary, interactionLog);
       results.push(result);
       interactionLog.push(interaction);
+
+      const fresh = execCli(['--raw', 'snapshot', '--boxes']);
+      const raw = fresh.stdout || fresh.stderr || '';
+      pageSummary = {
+        url: execCli(['eval', '() => location.href']).success ? execCli(['eval', '() => location.href']).stdout.trim() : '',
+        title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
+        elements: parseAccessibilityTree(raw),
+        matchedTerms: [],
+      };
     }
   } finally {
     await CliSession.close();
