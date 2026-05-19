@@ -8,6 +8,8 @@ import { testCases } from "../../db/schema";
 import { parseFile } from "../../parser";
 import { translateTestCase } from "../../translator/translate-service";
 import { decomposeTestCase } from "../../translator/decompose-service";
+import { translatorPrompt, decomposerPrompt } from "../../shared/llm-prompts";
+import { TestCaseSchema } from "../../shared/schemas";
 import { KnowledgeService } from "../../knowledge/knowledge-service";
 import { LlmClient } from "../../shared/llm-client";
 import type { TestCase, TestStep } from "../../shared/types";
@@ -304,6 +306,86 @@ router.post("/:id/decompose", async (c) => {
       status: 500,
     });
   }
+});
+
+router.post("/:id/translate/stream", async (c) => {
+  const id = c.req.param("id");
+  const row = await findCaseOr404(id);
+  if (!row) return c.json({ error: "Not found" }, 404);
+
+  const ks = new KnowledgeService();
+  const knowledgeContent = ks.buildContext(row.productLine);
+  const llm = getLlmClient();
+  const testCase = rowToTestCase(row);
+
+  const messages = [
+    { role: "system", content: translatorPrompt() },
+    { role: "user", content: `请标准化以下原始测试用例：\n\`\`\`json\n${JSON.stringify(testCase, null, 2)}\n\`\`\`\n\n${knowledgeContent ? `## 产品知识库\n${knowledgeContent}` : ""}` },
+  ];
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      let full = "";
+      try {
+        for await (const chunk of llm.chatCompletionStream(messages, { responseFormat: { type: "json_object" } })) {
+          full += chunk;
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ chunk })}\n\n`));
+        }
+        const parsed = JSON.parse(full);
+        const translated = TestCaseSchema.parse(parsed);
+        await db.update(testCases).set({ stepsJson: JSON.stringify(translated.steps), status: "translated", updatedAt: new Date().toISOString() }).where(eq(testCases.id, id));
+        const steps = translated.steps.map((s: any) => ({ order: s.order, actionText: s.actionText, expectedText: s.expectedText }));
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "done", steps })}\n\n`));
+      } catch (err: any) {
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "error", error: err.message })}\n\n`));
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
+  });
+});
+
+router.post("/:id/decompose/stream", async (c) => {
+  const id = c.req.param("id");
+  const row = await findCaseOr404(id);
+  if (!row) return c.json({ error: "Not found" }, 404);
+
+  const ks = new KnowledgeService();
+  const knowledgeContent = ks.buildContext(row.productLine);
+  const llm = getLlmClient();
+  const testCase = rowToTestCase(row);
+
+  const messages = [
+    { role: "system", content: decomposerPrompt() },
+    { role: "user", content: `请将以下测试用例的复合步骤拆解为原子操作：\n\`\`\`json\n${JSON.stringify(testCase, null, 2)}\n\`\`\`\n\n${knowledgeContent ? `## 产品知识库\n${knowledgeContent}` : ""}` },
+  ];
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      let full = "";
+      try {
+        for await (const chunk of llm.chatCompletionStream(messages, { responseFormat: { type: "json_object" } })) {
+          full += chunk;
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ chunk })}\n\n`));
+        }
+        const parsed = JSON.parse(full);
+        const decomposed = TestCaseSchema.parse(parsed);
+        await db.update(testCases).set({ stepsJson: JSON.stringify(decomposed.steps), status: "decomposed", updatedAt: new Date().toISOString() }).where(eq(testCases.id, id));
+        const steps = decomposed.steps.map((s: any) => ({ order: s.order, actionText: s.actionText, expectedText: s.expectedText }));
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "done", steps })}\n\n`));
+      } catch (err: any) {
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "error", error: err.message })}\n\n`));
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
+  });
 });
 
 export default router;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useExecutionProgress } from '../hooks/useExecutionProgress'
@@ -46,17 +46,13 @@ interface CaseDetail {
   status: string
 }
 
-interface TranslateDecomposeResult {
-  status: string
-  steps: CaseStep[]
-}
-
 type PhaseStatus = 'idle' | 'loading' | 'done' | 'error'
 
 interface PhaseState {
   status: PhaseStatus
   steps: CaseStep[]
   error?: string
+  streamText?: string
 }
 
 type Mode = 'auto' | 'manual'
@@ -122,6 +118,24 @@ const PHASE_CONFIG = [
     loadingLabel: '正在执行…',
   },
 ]
+
+function StreamingText({ text }: { text: string }) {
+  const preRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    if (preRef.current) {
+      preRef.current.scrollTop = preRef.current.scrollHeight
+    }
+  }, [text])
+
+  return (
+    <pre
+      ref={preRef}
+      className="bg-gray-900 text-green-400 text-xs p-4 rounded-lg overflow-x-auto overflow-y-auto max-h-60 leading-relaxed font-mono"
+    >
+      <code>{text}<span className="animate-pulse">▍</span></code>
+    </pre>
+  )
+}
 
 export default function ExecutionPage() {
   const [searchParams] = useSearchParams()
@@ -197,17 +211,53 @@ export default function ExecutionPage() {
     async (phase: 'translate' | 'decompose') => {
       if (!selectedCaseId) return
       const setter = phase === 'translate' ? setTranslate : setDecompose
-      setter({ status: 'loading', steps: [] })
+      setter({ status: 'loading', steps: [], streamText: '' })
+      const ep = phase === 'translate' ? 'translate' : 'decompose'
       try {
-        const result = await api.post<TranslateDecomposeResult>(
-          PHASE_CONFIG.find((p) => p.key === phase)!.apiEndpoint(selectedCaseId),
-          {},
-        )
-        setter({ status: 'done', steps: result.steps })
-        return result
+        const response = await fetch(`/api/test-cases/${selectedCaseId}/${ep}/stream`, { method: 'POST' })
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => '')
+          throw new Error(errorText || `${phase} 请求失败`)
+        }
+        if (!response.body) throw new Error('No response body')
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let fullText = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed.startsWith('data: ')) continue
+            try {
+              const data = JSON.parse(trimmed.slice(6))
+              if (data.chunk) {
+                fullText += data.chunk
+                setter((prev) => ({ ...prev, streamText: fullText }))
+              } else if (data.status === 'done') {
+                setter({ status: 'done', steps: data.steps, streamText: fullText })
+                return { steps: data.steps }
+              } else if (data.status === 'error') {
+                setter({ status: 'error', steps: [], streamText: fullText, error: data.error })
+                throw new Error(data.error)
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue
+              throw e
+            }
+          }
+        }
+        // Stream ended without 'done' event — treat as completion with empty steps
+        setter({ status: 'done', steps: [], streamText: fullText })
+        return { steps: [] }
       } catch (err) {
         const msg = err instanceof Error ? err.message : `${phase} 失败`
-        setter({ status: 'error', steps: [], error: msg })
+        setter((prev) => ({ ...prev, status: 'error', error: msg }))
         throw err
       }
     },
@@ -232,19 +282,8 @@ export default function ExecutionPage() {
     if (!selectedCaseId || executingAll) return
     setExecutingAll(true)
     try {
-      setTranslate({ status: 'loading', steps: [] })
-      const translateResult = await api.post<TranslateDecomposeResult>(
-        `/test-cases/${selectedCaseId}/translate`,
-        {},
-      )
-      setTranslate({ status: 'done', steps: translateResult.steps })
-
-      setDecompose({ status: 'loading', steps: [] })
-      const decomposeResult = await api.post<TranslateDecomposeResult>(
-        `/test-cases/${selectedCaseId}/decompose`,
-        {},
-      )
-      setDecompose({ status: 'done', steps: decomposeResult.steps })
+      await startPhase('translate')
+      await startPhase('decompose')
 
       setExecute({ status: 'loading', steps: [] })
       setActiveRunId(null)
@@ -253,7 +292,7 @@ export default function ExecutionPage() {
     } catch {
       setExecutingAll(false)
     }
-  }, [selectedCaseId, executingAll])
+  }, [selectedCaseId, executingAll, startPhase])
 
   const isAutoDisabled =
     !selectedCaseId ||
@@ -356,7 +395,7 @@ export default function ExecutionPage() {
           ? decompose
           : execute
 
-    const { status: phaseStatus, steps: phaseSteps, error: phaseError } = state
+    const { status: phaseStatus, steps: phaseSteps, error: phaseError, streamText } = state
     const isExpanded = phaseStatus !== 'idle'
     const PhaseIcon = config.icon
 
@@ -455,9 +494,14 @@ export default function ExecutionPage() {
         {isExpanded && (
           <div className="px-4 py-3 border-t border-gray-100">
             {phaseStatus === 'loading' && config.key !== 'execute' && (
-              <div className="flex items-center justify-center py-6">
-                <Loader2 className="w-5 h-5 animate-spin text-blue-500 mr-2" />
-                <span className="text-sm text-gray-500">{config.loadingLabel}</span>
+              <div>
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-500 mr-2" />
+                  <span className="text-sm text-gray-500">{config.loadingLabel}</span>
+                </div>
+                {streamText !== undefined && (
+                  <StreamingText text={streamText} />
+                )}
               </div>
             )}
 
