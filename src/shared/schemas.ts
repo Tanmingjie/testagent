@@ -24,7 +24,7 @@ export const TestCaseSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   productLine: z.string().min(1),
-  precondition: z.string().optional(),
+  precondition: z.string().nullish(),
   source: z.enum(['excel', 'markdown']),
   steps: z.array(TestStepSchema).min(1),
   status: z.enum(['raw', 'translated', 'decomposed', 'executed']),

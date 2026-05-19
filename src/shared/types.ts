@@ -22,7 +22,7 @@ export interface TestCase {
   id: string;
   name: string;
   productLine: string;
-  precondition?: string;
+  precondition?: string | null;
   source: 'excel' | 'markdown';
   steps: TestStep[];
   status: 'raw' | 'translated' | 'decomposed' | 'executed';
