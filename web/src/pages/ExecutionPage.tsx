@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useExecutionProgress } from '../hooks/useExecutionProgress'
@@ -52,7 +52,6 @@ interface PhaseState {
   status: PhaseStatus
   steps: CaseStep[]
   error?: string
-  streamText?: string
 }
 
 type Mode = 'auto' | 'manual'
@@ -119,21 +118,59 @@ const PHASE_CONFIG = [
   },
 ]
 
-function StreamingText({ text }: { text: string }) {
-  const preRef = useRef<HTMLPreElement>(null)
+function AnimatedStepsTable({ steps }: { steps: CaseStep[] }) {
+  const [visibleCount, setVisibleCount] = useState(0)
+
   useEffect(() => {
-    if (preRef.current) {
-      preRef.current.scrollTop = preRef.current.scrollHeight
+    setVisibleCount(0)
+    if (steps.length === 0) return
+    let i = 1
+    const t = setInterval(() => {
+      if (i <= steps.length) {
+        setVisibleCount(i)
+        i++
+      } else {
+        clearInterval(t)
+      }
+    }, 250)
+    return () => clearInterval(t)
+  }, [steps])
+
+  if (visibleCount === 0) return null
+
+  const styles = `
+    @keyframes stepIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
     }
-  }, [text])
+  `
 
   return (
-    <pre
-      ref={preRef}
-      className="bg-gray-900 text-green-400 text-xs p-4 rounded-lg overflow-x-auto overflow-y-auto max-h-60 leading-relaxed font-mono"
-    >
-      <code>{text}<span className="animate-pulse">▍</span></code>
-    </pre>
+    <>
+      <style>{styles}</style>
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="border-b border-gray-100">
+            <th className="text-left py-1.5 pr-3 text-gray-500 font-medium w-12">步骤</th>
+            <th className="text-left py-1.5 pr-3 text-gray-500 font-medium">操作</th>
+            <th className="text-left py-1.5 text-gray-500 font-medium">预期结果</th>
+          </tr>
+        </thead>
+        <tbody>
+          {steps.slice(0, visibleCount).map((step) => (
+            <tr
+              key={step.order}
+              style={{ animation: 'stepIn 0.3s ease forwards' }}
+              className="border-t border-gray-50"
+            >
+              <td className="py-1.5 pr-3 text-gray-400 align-top">{step.order}</td>
+              <td className="py-1.5 pr-3 text-gray-700 align-top">{step.actionText}</td>
+              <td className="py-1.5 text-gray-700 align-top">{step.expectedText}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   )
 }
 
@@ -211,7 +248,7 @@ export default function ExecutionPage() {
     async (phase: 'translate' | 'decompose') => {
       if (!selectedCaseId) return
       const setter = phase === 'translate' ? setTranslate : setDecompose
-      setter({ status: 'loading', steps: [], streamText: '' })
+      setter({ status: 'loading', steps: [] })
       const ep = phase === 'translate' ? 'translate' : 'decompose'
       try {
         const response = await fetch(`/api/test-cases/${selectedCaseId}/${ep}/stream`, { method: 'POST' })
@@ -223,7 +260,6 @@ export default function ExecutionPage() {
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
-        let fullText = ''
 
         while (true) {
           const { done, value } = await reader.read()
@@ -236,14 +272,11 @@ export default function ExecutionPage() {
             if (!trimmed.startsWith('data: ')) continue
             try {
               const data = JSON.parse(trimmed.slice(6))
-              if (data.chunk) {
-                fullText += data.chunk
-                setter((prev) => ({ ...prev, streamText: fullText }))
-              } else if (data.status === 'done') {
-                setter({ status: 'done', steps: data.steps, streamText: fullText })
+              if (data.status === 'done') {
+                setter({ status: 'done', steps: data.steps })
                 return { steps: data.steps }
               } else if (data.status === 'error') {
-                setter({ status: 'error', steps: [], streamText: fullText, error: data.error })
+                setter({ status: 'error', steps: [], error: data.error })
                 throw new Error(data.error)
               }
             } catch (e) {
@@ -252,8 +285,7 @@ export default function ExecutionPage() {
             }
           }
         }
-        // Stream ended without 'done' event — treat as completion with empty steps
-        setter({ status: 'done', steps: [], streamText: fullText })
+        setter({ status: 'done', steps: [] })
         return { steps: [] }
       } catch (err) {
         const msg = err instanceof Error ? err.message : `${phase} 失败`
@@ -362,31 +394,6 @@ export default function ExecutionPage() {
     }
   }
 
-  function renderStepsTable(steps: CaseStep[]) {
-    return (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-12">步骤</th>
-              <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400">操作</th>
-              <th className="text-left py-2 text-xs font-medium text-gray-400">预期结果</th>
-            </tr>
-          </thead>
-          <tbody>
-            {steps.map((step) => (
-              <tr key={step.order} className="border-b border-gray-50 last:border-0">
-                <td className="py-2 pr-4 text-gray-800 font-medium">{step.order}</td>
-                <td className="py-2 pr-4 text-gray-700">{step.actionText}</td>
-                <td className="py-2 text-gray-700">{step.expectedText}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
   function renderPhaseCard(config: (typeof PHASE_CONFIG)[number]) {
     const state =
       config.key === 'translate'
@@ -395,7 +402,7 @@ export default function ExecutionPage() {
           ? decompose
           : execute
 
-    const { status: phaseStatus, steps: phaseSteps, error: phaseError, streamText } = state
+    const { status: phaseStatus, steps: phaseSteps, error: phaseError } = state
     const isExpanded = phaseStatus !== 'idle'
     const PhaseIcon = config.icon
 
@@ -494,14 +501,9 @@ export default function ExecutionPage() {
         {isExpanded && (
           <div className="px-4 py-3 border-t border-gray-100">
             {phaseStatus === 'loading' && config.key !== 'execute' && (
-              <div>
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="w-5 h-5 animate-spin text-blue-500 mr-2" />
-                  <span className="text-sm text-gray-500">{config.loadingLabel}</span>
-                </div>
-                {streamText !== undefined && (
-                  <StreamingText text={streamText} />
-                )}
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-500 mr-2" />
+                <span className="text-sm text-gray-500">{config.loadingLabel}</span>
               </div>
             )}
 
@@ -517,7 +519,7 @@ export default function ExecutionPage() {
                 <p className="text-xs font-medium text-gray-500 mb-2">
                   {config.successLabel} — 共 {phaseSteps.length} 步
                 </p>
-                {renderStepsTable(phaseSteps)}
+                <AnimatedStepsTable steps={phaseSteps} />
               </div>
             )}
 
