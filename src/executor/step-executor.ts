@@ -350,7 +350,7 @@ function parseCliCommand(cmd: string): { action: string; args: string[] } | null
 
 const VERIFY_ERROR_PATTERNS = [
   '页面不存在', '系统错误', '服务器错误', '网络不给力', '访问出错',
-  '404', 'Not Found', 'Internal Server Error',
+  'Not Found', 'Internal Server Error',
   '验证码', '安全验证', 'captcha',
   '登录失败', '用户名或密码错误', '账号或密码错误',
 ];
@@ -404,8 +404,9 @@ function validateCommandMatchesAction(command: string, actionText: string): stri
 }
 
 function pageSummaryFromSnapshot(raw: string): PageSummary {
+  const urlResult = execCli(['eval', '() => location.href']);
   return {
-    url: '',
+    url: urlResult.success ? urlResult.stdout.trim() : '',
     title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
     elements: parseAccessibilityTree(raw),
     matchedTerms: [],
@@ -465,7 +466,7 @@ async function attemptSelfHeal(
     }
 
     const freshSummary = pageSummaryFromSnapshot(snapshotAfter.stdout || snapshotAfter.stderr || '');
-    console.log(`[SELFHEAL] regenerate: freshSummary has ${freshSummary.elements.length} elements`);
+    console.log(`[SELFHEAL] regenerate: freshSummary has ${freshSummary.elements.length} elements, URL="${freshSummary.url}"`);
     const regeneratedPrompt = buildCodeGenPrompt(freshSummary, step.actionText, step.expectedText, interactionLog, context.knowledgeContent);
 
     try {
