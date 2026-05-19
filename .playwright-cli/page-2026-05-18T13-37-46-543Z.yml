@@ -1,0 +1,272 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic:
+      - generic [ref=e8]:
+        - link "新闻" [ref=e9] [cursor=pointer]:
+          - /url: http://news.baidu.com
+        - link "hao123" [ref=e10] [cursor=pointer]:
+          - /url: https://www.hao123.com?src=from_pc
+        - link "地图" [ref=e11] [cursor=pointer]:
+          - /url: http://map.baidu.com
+        - link "贴吧" [ref=e12] [cursor=pointer]:
+          - /url: http://tieba.baidu.com/
+        - link "视频" [ref=e13] [cursor=pointer]:
+          - /url: https://haokan.baidu.com/?sfrom=baidu-top
+        - link "图片" [ref=e14] [cursor=pointer]:
+          - /url: http://image.baidu.com/
+        - link "网盘" [ref=e15] [cursor=pointer]:
+          - /url: https://pan.baidu.com?from=1026962h
+        - link "文库" [ref=e16] [cursor=pointer]:
+          - /url: https://wenku.baidu.com/?fr=bdpcindex
+        - link "文心" [ref=e17] [cursor=pointer]:
+          - /url: https://chat.baidu.com/search?isShowHello=1&pd=csaitab&setype=csaitab&extParamsJson=%7B%22enter_type%22%3A%22home_tab%22%7D
+        - link "搭子DuMate" [ref=e18] [cursor=pointer]:
+          - /url: https://dumate.cn?track=bdsy
+          - text: 搭子DuMate
+        - link "更多" [ref=e21] [cursor=pointer]:
+          - /url: http://www.baidu.com/more/
+      - generic [ref=e22]:
+        - generic [ref=e23] [cursor=pointer]: 设置
+        - link "登录" [ref=e24] [cursor=pointer]:
+          - /url: https://passport.baidu.com/v2/?login&tpl=mn&u=http%3A%2F%2Fwww.baidu.com%2F&sms=5
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - img [ref=e29]
+        - generic:
+          - link:
+            - /url: //baike.baidu.com/activity/knowledge?pageKey=f5OE0kUX-2&cdVersion=0.1.29
+      - generic [ref=e36]:
+        - textbox "张雪机车落后雅马哈46分" [active] [ref=e39]
+        - generic [ref=e42]:
+          - generic [ref=e44]:
+            - img [ref=e51] [cursor=pointer]
+            - img [ref=e57] [cursor=pointer]
+            - img [ref=e62] [cursor=pointer]
+          - button "百度一下" [ref=e66] [cursor=pointer]
+    - generic [ref=e67]:
+      - link "复杂问题就找文心助手，深入思考回答更优 " [ref=e69] [cursor=pointer]:
+        - /url: https://chat.baidu.com/search?extParams=%7B%22enter_type%22%3A%22home_operate%22%7D&isShowHello=1
+        - img [ref=e70]
+        - generic [ref=e71]: 复杂问题就找文心助手，深入思考回答更优 
+      - generic [ref=e72]:
+        - generic [ref=e73]:
+          - link "百度热搜":
+            - /url: https://top.baidu.com/board?platform=pc&sa=pcindex_entry
+            - generic "百度热搜" [ref=e74] [cursor=pointer]: 
+          - generic [ref=e75] [cursor=pointer]:
+            - generic [ref=e76]: 
+            - text: 换一换
+        - list:
+          - listitem [ref=e77]:
+            - link " 听总书记讲文物故事" [ref=e78] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E5%90%AC%E6%80%BB%E4%B9%A6%E8%AE%B0%E8%AE%B2%E6%96%87%E7%89%A9%E6%95%85%E4%BA%8B&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e79]: 
+              - text: 听总书记讲文物故事
+          - listitem [ref=e81]:
+            - link "5 武汉一村庄585人中62人患癌" [ref=e82] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E6%AD%A6%E6%B1%89%E4%B8%80%E6%9D%91%E5%BA%84585%E4%BA%BA%E4%B8%AD62%E4%BA%BA%E6%82%A3%E7%99%8C&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e83]: "5"
+              - text: 武汉一村庄585人中62人患癌
+            - generic [ref=e84]: 新
+          - listitem [ref=e85]:
+            - link "1 “计划有变 准备夺冠！”" [ref=e86] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E2%80%9C%E8%AE%A1%E5%88%92%E6%9C%89%E5%8F%98+%E5%87%86%E5%A4%87%E5%A4%BA%E5%86%A0%EF%BC%81%E2%80%9D&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e87]: "1"
+              - text: “计划有变 准备夺冠！”
+            - generic [ref=e88]: 热
+          - listitem [ref=e89]:
+            - link "6 公安部通报非法破解无人机典型案例" [ref=e90] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E5%85%AC%E5%AE%89%E9%83%A8%E9%80%9A%E6%8A%A5%E9%9D%9E%E6%B3%95%E7%A0%B4%E8%A7%A3%E6%97%A0%E4%BA%BA%E6%9C%BA%E5%85%B8%E5%9E%8B%E6%A1%88%E4%BE%8B&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e91]: "6"
+              - text: 公安部通报非法破解无人机典型案例
+          - listitem [ref=e93]:
+            - link "2 武汉票价最贵火车发车：20999元起" [ref=e94] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E6%AD%A6%E6%B1%89%E7%A5%A8%E4%BB%B7%E6%9C%80%E8%B4%B5%E7%81%AB%E8%BD%A6%E5%8F%91%E8%BD%A6%EF%BC%9A20999%E5%85%83%E8%B5%B7&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e95]: "2"
+              - text: 武汉票价最贵火车发车：20999元起
+          - listitem [ref=e97]:
+            - link "7 湖南石门强降雨已致1人死亡2人失联" [ref=e98] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E6%B9%96%E5%8D%97%E7%9F%B3%E9%97%A8%E5%BC%BA%E9%99%8D%E9%9B%A8%E5%B7%B2%E8%87%B41%E4%BA%BA%E6%AD%BB%E4%BA%A12%E4%BA%BA%E5%A4%B1%E8%81%94&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e99]: "7"
+              - text: 湖南石门强降雨已致1人死亡2人失联
+            - generic [ref=e100]: 新
+          - listitem [ref=e101]:
+            - link "3 中国“逐日工程”研究取得重大进展" [ref=e102] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E4%B8%AD%E5%9B%BD%E2%80%9C%E9%80%90%E6%97%A5%E5%B7%A5%E7%A8%8B%E2%80%9D%E7%A0%94%E7%A9%B6%E5%8F%96%E5%BE%97%E9%87%8D%E5%A4%A7%E8%BF%9B%E5%B1%95&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e103]: "3"
+              - text: 中国“逐日工程”研究取得重大进展
+          - listitem [ref=e105]:
+            - link "8 中国人均GDP已超1万美元" [ref=e106] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E4%B8%AD%E5%9B%BD%E4%BA%BA%E5%9D%87GDP%E5%B7%B2%E8%B6%851%E4%B8%87%E7%BE%8E%E5%85%83&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e107]: "8"
+              - text: 中国人均GDP已超1万美元
+            - generic [ref=e108]: 热
+          - listitem [ref=e109]:
+            - link "4 洁丽雅已报警" [ref=e110] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E6%B4%81%E4%B8%BD%E9%9B%85%E5%B7%B2%E6%8A%A5%E8%AD%A6&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e111]: "4"
+              - text: 洁丽雅已报警
+            - generic [ref=e112]: 新
+          - listitem [ref=e113]:
+            - link "9 天津高空跳伞基地发生事故 两人遇难" [ref=e114] [cursor=pointer]:
+              - /url: https://www.baidu.com/s?wd=%E5%A4%A9%E6%B4%A5%E9%AB%98%E7%A9%BA%E8%B7%B3%E4%BC%9E%E5%9F%BA%E5%9C%B0%E5%8F%91%E7%94%9F%E4%BA%8B%E6%95%85+%E4%B8%A4%E4%BA%BA%E9%81%87%E9%9A%BE&sa=fyb_n_homepage&rsv_dl=fyb_n_homepage&from=super&cl=3&tn=baidutop10&fr=top1000&rsv_idx=2&hisfilter=1
+              - generic [ref=e115]: "9"
+              - text: 天津高空跳伞基地发生事故 两人遇难
+            - generic [ref=e116]: 热
+      - list [ref=e120]:
+        - listitem [ref=e121]:
+          - generic [ref=e123]:
+            - img [ref=e127]
+            - generic [ref=e128]:
+              - paragraph [ref=e129]:
+                - generic [ref=e130]: 周末打虎！正部级王晓东被查，曾任湖北省省长
+              - generic [ref=e132]: 济南时报1天前
+        - listitem [ref=e133]:
+          - generic [ref=e135]:
+            - img [ref=e139]
+            - generic [ref=e140]:
+              - paragraph [ref=e141]:
+                - generic [ref=e142]: 中美阿三国警方首次联合打击迪拜地区电诈：9个诈骗窝点被捣毁，276名网恋骗子被抓
+              - generic [ref=e144]: 大河网1天前
+        - listitem [ref=e145]:
+          - generic [ref=e147]:
+            - img [ref=e151]
+            - generic [ref=e152]:
+              - paragraph [ref=e153]:
+                - generic [ref=e154]: 菲律宾爆发武装冲突：军方称打死5名反政府武装人员
+              - generic [ref=e156]: 封面新闻1天前
+        - listitem [ref=e157]:
+          - generic [ref=e159]:
+            - paragraph [ref=e160]:
+              - generic [ref=e161]: 已致1人死亡9人失联！国家防办派出工作组赴广西
+            - generic [ref=e163]: 中国能源报1天前
+        - listitem [ref=e164]:
+          - generic [ref=e166]:
+            - img [ref=e170]
+            - generic [ref=e171]:
+              - paragraph [ref=e172]:
+                - generic [ref=e173]: 特朗普公开警告“台独”，苏起：美国未来“挺台”力道将转弱
+              - generic [ref=e175]: 海峡导报1天前
+        - listitem [ref=e176]:
+          - generic [ref=e178]:
+            - img [ref=e182]
+            - generic [ref=e183]:
+              - paragraph [ref=e184]:
+                - generic [ref=e185]: 大风追踪｜重庆巫溪一辆120急救车运输化肥；卫健委：驾驶员返程途中购置家用化肥，影响恶劣，将对涉事人员严肃处理
+              - generic [ref=e187]: 大风新闻1天前
+        - listitem [ref=e188]:
+          - generic [ref=e190]:
+            - img [ref=e194]
+            - generic [ref=e195]:
+              - paragraph [ref=e196]:
+                - generic [ref=e197]: 重庆巫溪：影响恶劣，将依法依规对涉事相关责任人员作出严肃处理
+              - generic [ref=e199]: 环球时报1天前
+        - listitem [ref=e200]:
+          - generic [ref=e202]:
+            - img [ref=e206]
+            - generic [ref=e207]:
+              - paragraph [ref=e208]:
+                - generic [ref=e209]: 合肥芯片巨头，业绩炸裂！3个月净赚330亿元，预计上半年营收超1100亿元，净利超660亿元
+              - generic [ref=e211]: 每日经济新闻1天前
+        - listitem [ref=e212]:
+          - generic [ref=e214]:
+            - img [ref=e218]
+            - generic [ref=e219]:
+              - paragraph [ref=e220]:
+                - generic [ref=e221]: 视频丨责任人已被采取强制措施 独家还原四川大摆荡坠亡事发经过
+              - generic [ref=e223]: 央视新闻1天前
+        - listitem [ref=e224]:
+          - generic [ref=e226]:
+            - img [ref=e230]
+            - generic [ref=e231]:
+              - paragraph [ref=e232]:
+                - generic [ref=e233]: 广西环江载15人皮卡坠河事故搜救现场曝光！事发桥宽约四米
+              - generic [ref=e235]: 大河报1天前
+        - listitem [ref=e236]:
+          - generic [ref=e238]:
+            - img [ref=e242]
+            - generic [ref=e243]:
+              - paragraph [ref=e244]:
+                - generic [ref=e245]: 103号！新汽油来了
+              - generic [ref=e247]: 封面新闻1天前
+        - listitem [ref=e248]:
+          - generic [ref=e250]:
+            - img [ref=e254]
+            - generic [ref=e255]:
+              - paragraph [ref=e256]:
+                - generic [ref=e257]: 美军“福特”号航母返回母港，这艘“世界现役最大航母” 创下了越南战争后美国航母连续海上部署最长时间纪录，连续执行任务达326天
+              - generic [ref=e259]: 极目新闻1天前
+        - listitem [ref=e260]:
+          - generic [ref=e262]:
+            - img [ref=e266]
+            - generic [ref=e267]:
+              - paragraph [ref=e268]:
+                - generic [ref=e269]: 女子大闹出入境办证大厅，牵出丈夫亿元偷渡大案：一个横跨江西、辽宁、福建等24省（区、市）、总金额超1亿特大偷渡犯罪网络被摧毁
+              - generic [ref=e271]: 红星新闻1天前
+        - listitem [ref=e272]:
+          - generic [ref=e274]:
+            - img [ref=e278]
+            - generic [ref=e279]:
+              - paragraph [ref=e280]:
+                - generic [ref=e281]: 消息人士称美方在回应伊朗提议时列出5个关键条件，包括美不支付任何赔偿、伊移交400公斤浓缩铀、美拒绝解冻伊被冻结资产等
+              - generic [ref=e283]: 鲁中晨报1天前
+        - listitem [ref=e284]:
+          - generic [ref=e286]:
+            - img [ref=e290]
+            - generic [ref=e291]:
+              - paragraph [ref=e292]:
+                - generic [ref=e293]: 伊朗总统发了一张至少4500年历史的柏树图；特朗普发了一张站在军舰上的图
+              - generic [ref=e295]: 中国侨网1天前
+        - listitem [ref=e296]:
+          - generic [ref=e298]:
+            - img [ref=e302]
+            - generic [ref=e303]:
+              - paragraph [ref=e304]:
+                - generic [ref=e305]: 市场监管总局明确34项重点工作 持续加力护航民营经济发展壮大
+              - generic [ref=e307]: 中国质量新闻网23小时前
+        - listitem [ref=e308]:
+          - generic [ref=e310]:
+            - img [ref=e314]
+            - generic [ref=e315]:
+              - paragraph [ref=e316]:
+                - generic [ref=e317]: 广西河池皮卡车坠河事件相关责任人被依法控制，事故原因还在进一步核查中
+              - generic [ref=e319]: 极目新闻1天前
+        - listitem [ref=e320]:
+          - generic [ref=e322]:
+            - img [ref=e326]
+            - generic [ref=e327]:
+              - paragraph [ref=e328]:
+                - generic [ref=e329]: 广西环江皮卡落水1死9失联，雇主组织人种红薯返程时出事，村干部：失联者均为女性；“15岁少年获救后，回忆经历脚都发抖”
+              - generic [ref=e331]: 红星新闻1天前
+    - generic [ref=e333]:
+      - paragraph [ref=e334]:
+        - link "关于百度" [ref=e335] [cursor=pointer]:
+          - /url: //home.baidu.com
+      - paragraph [ref=e336]:
+        - link "About Baidu" [ref=e337] [cursor=pointer]:
+          - /url: http://ir.baidu.com
+      - paragraph [ref=e338]:
+        - link "使用百度前必读" [ref=e339] [cursor=pointer]:
+          - /url: //www.baidu.com/duty
+      - paragraph [ref=e340]:
+        - link "帮助中心" [ref=e341] [cursor=pointer]:
+          - /url: https://help.baidu.com/question?prod_id=1
+      - paragraph [ref=e342]:
+        - link "企业推广" [ref=e343] [cursor=pointer]:
+          - /url: https://e.baidu.com/?refer=1271
+      - paragraph [ref=e344]:
+        - link "京公网安备11000002000001号" [ref=e345] [cursor=pointer]:
+          - /url: http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11000002000001
+      - paragraph [ref=e346]:
+        - link "京ICP证030173号" [ref=e347] [cursor=pointer]:
+          - /url: https://beian.miit.gov.cn
+      - paragraph [ref=e348]: 互联网新闻信息服务许可证11220180008
+      - paragraph [ref=e349]: 网络文化经营许可证： 京网文〔2026〕0171-042号
+      - generic [ref=e350]: 
+      - generic [ref=e351]: 
+  - generic [ref=e352]:
+    - generic:
+      - generic:
+        - generic:
+          - img
+    - img [ref=e357] [cursor=pointer]
