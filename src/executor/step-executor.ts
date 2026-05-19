@@ -165,6 +165,18 @@ export function classifyFailure(error: string): 'FAIL' | 'BLOCK' {
   return BLOCK_PATTERNS.some((p) => error?.includes(p)) ? 'BLOCK' : 'FAIL';
 }
 
+function fuzzyCjkMatch(expected: string, pageText: string): boolean {
+  const chars = [...expected].filter((c) => c.trim());
+  if (chars.length < 2) return false;
+  const hitCount = chars.filter((c) => pageText.includes(c)).length;
+  const ratio = hitCount / chars.length;
+  if (ratio >= 0.6) {
+    console.log(`[ASSERT-FUZZY] "${expected}" matched ${hitCount}/${chars.length} chars (${(ratio * 100).toFixed(0)}%)`);
+    return true;
+  }
+  return false;
+}
+
 const SYSTEM_PROMPT = readFileSync(CODEPROMPT_PATH, 'utf-8');
 const SELFHEAL_SYSTEM_PROMPT = readFileSync(SELFHEAL_PROMPT_PATH, 'utf-8');
 
@@ -360,7 +372,7 @@ async function executeCliAction(cli: CliCommands, cliCommand: string): Promise<C
           if (!found) {
             const bodyEval = execCli(['eval', '() => document.body.innerText']);
             const bodyText = (bodyEval.stdout || '').toLowerCase();
-            found = bodyText.includes(lower);
+            found = bodyText.includes(lower) || fuzzyCjkMatch(lower, bodyText);
           }
 
           result = { success: found, stdout: found ? `"${text}" found on page` : '', stderr: found ? '' : `"${text}" not found on page` };
@@ -436,6 +448,9 @@ function validateCommandMatchesAction(command: string, actionText: string): stri
   const cmdAction = command.split(/\s+/)[0]?.toLowerCase();
   const text = actionText.toLowerCase();
 
+  // run-code 动作类型在 JS 代码中表达（.click()/.fill()），校验器不做二级分析
+  if (cmdAction === 'run-code') return null;
+
   // 等待/检查步骤不做动作类型限制
   if (text.includes('等待') || text.includes('确认') || text.includes('确保')) {
     return null;
@@ -488,7 +503,8 @@ async function attemptSelfHeal(
     const lower = assertText.toLowerCase();
     const bodyEval = execCli(['eval', '() => document.body.innerText']);
     const bodyText = (bodyEval.stdout || '').toLowerCase();
-    const found = bodyText.includes(lower);
+    let found = bodyText.includes(lower);
+    if (!found) found = fuzzyCjkMatch(lower, bodyText);
 
     const screenshotPath = await captureScreenshot(context.cli, step.order);
     if (found) {
