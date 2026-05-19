@@ -6,6 +6,7 @@ import type { LlmClient } from '@shared/llm-client';
 import type { ExecutionContext, CliCommands, LLMCodeGenOutput } from './types';
 import { analyzePage } from './page-analyzer';
 import { CliSession } from './cli-session';
+import { execCli } from './cli-runner';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CODEPROMPT_PATH = resolve(__dirname, 'codegen-prompt.md');
@@ -32,6 +33,14 @@ export async function executeStep(
       const cliResult = await executeCliAction(cli, llmOutput.cliCommand);
       cliOk = cliResult.success;
       error = cliResult.error;
+
+      if (cliOk && expectedText) {
+        const verifyResult = await verifyAfterAction(cli, expectedText, llmOutput.cliCommand);
+        if (!verifyResult.verified) {
+          cliOk = false;
+          error = verifyResult.error;
+        }
+      }
     } else {
       error = 'LLM did not produce a cliCommand';
     }
@@ -307,6 +316,42 @@ function parseCliCommand(cmd: string): { action: string; args: string[] } | null
   if (!action) return null;
 
   return { action, args };
+}
+
+const VERIFY_ERROR_PATTERNS = [
+  '页面不存在', '系统错误', '服务器错误', '网络不给力', '访问出错',
+  '404', 'Not Found', 'Internal Server Error',
+  '验证码', '安全验证', 'captcha',
+  '登录失败', '用户名或密码错误', '账号或密码错误',
+];
+
+async function verifyAfterAction(
+  cli: CliCommands,
+  expectedText: string,
+  command: string,
+): Promise<{ verified: boolean; error?: string }> {
+  const snapshotResult = execCli(['--raw', 'snapshot']);
+  const pageText = (snapshotResult.stdout || snapshotResult.stderr || '').toLowerCase();
+
+  for (const pattern of VERIFY_ERROR_PATTERNS) {
+    if (pageText.includes(pattern.toLowerCase())) {
+      return { verified: false, error: `页面检测到异常: ${pattern}` };
+    }
+  }
+
+  const cmdName = command.split(/\s+/)[0]?.toLowerCase();
+  if (cmdName === 'navigate' || cmdName === 'goto') {
+    const urlResult = execCli(['eval', '() => location.href']);
+    if (urlResult.success) {
+      const url = urlResult.stdout.trim();
+      const targetUrl = command.split(/\s+/).slice(1).join(' ');
+      if (targetUrl && url === targetUrl && pageText.length < 100) {
+        return { verified: false, error: `导航到 ${targetUrl} 后页面内容为空，可能加载失败` };
+      }
+    }
+  }
+
+  return { verified: true };
 }
 
 async function captureScreenshot(cli: CliCommands, stepOrder: number): Promise<string | undefined> {
