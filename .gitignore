@@ -7,6 +7,7 @@ data/screenshots/*.png
 data/generated/
 data/cases/
 .playwright/
+.playwright-cli/
 .sisyphus/evidence/
 .sisyphus/notepads/
 .sisyphus/boulder.json
