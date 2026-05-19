@@ -370,6 +370,15 @@ async function verifyAfterAction(
   return { verified: true };
 }
 
+function pageSummaryFromSnapshot(raw: string): PageSummary {
+  return {
+    url: '',
+    title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
+    elements: parseAccessibilityTree(raw),
+    matchedTerms: [],
+  };
+}
+
 async function attemptSelfHeal(
   failed: { result: StepResult; interaction: Interaction },
   step: TestStep,
@@ -410,27 +419,35 @@ async function attemptSelfHeal(
         );
         if (verifyRetry.verified) {
           const screenshotPath = await captureScreenshot(context.cli, step.order);
-          const healedResult: StepResult = {
-            stepOrder: step.order,
-            status: 'PASS',
-            screenshotPath,
-            error: undefined,
-            pythonCode: healed.pythonCode,
+          return {
+            result: { stepOrder: step.order, status: 'PASS', screenshotPath, pythonCode: healed.pythonCode },
+            interaction: { stepOrder: step.order, pythonCode: healed.pythonCode, cliCommand: origCmd, targetElement: healed.targetElement, passed: true, screenshotPath },
           };
-          const healedInteraction: Interaction = {
-            stepOrder: step.order,
-            pythonCode: healed.pythonCode,
-            cliCommand: origCmd,
-            targetElement: healed.targetElement,
-            passed: true,
-            screenshotPath,
-          };
-          return { result: healedResult, interaction: healedInteraction };
         }
       }
     }
 
-    return null;
+    const freshSummary = pageSummaryFromSnapshot(snapshotAfter.stdout || snapshotAfter.stderr || '');
+    const regeneratedPrompt = buildCodeGenPrompt(freshSummary, step.actionText, step.expectedText, interactionLog, context.knowledgeContent);
+
+    try {
+      const regeneratedOutput = await callLlmForCodegen(context.llm, regeneratedPrompt);
+      if (!regeneratedOutput.cliCommand) return null;
+
+      const regenResult = await executeCliAction(context.cli, regeneratedOutput.cliCommand);
+      if (!regenResult.success) return null;
+
+      const regenVerify = await verifyAfterAction(context.cli, step.expectedText, regeneratedOutput.cliCommand);
+      if (!regenVerify.verified) return null;
+
+      const screenshotPath = await captureScreenshot(context.cli, step.order);
+      return {
+        result: { stepOrder: step.order, status: 'PASS', screenshotPath, pythonCode: regeneratedOutput.pythonCode },
+        interaction: { stepOrder: step.order, pythonCode: regeneratedOutput.pythonCode, cliCommand: regeneratedOutput.cliCommand, targetElement: regeneratedOutput.targetElement, passed: true, screenshotPath },
+      };
+    } catch {
+      return null;
+    }
   } catch {
     return null;
   }
