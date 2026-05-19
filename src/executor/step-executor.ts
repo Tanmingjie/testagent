@@ -191,6 +191,7 @@ function buildUserPrompt(
   lines.push('## 页面摘要');
   lines.push(`URL: ${pageSummary.url}`);
   lines.push(`标题: ${pageSummary.title}`);
+  console.log(`[CODEGEN-PROMPT] url="${pageSummary.url}" title="${pageSummary.title}" elements=${pageSummary.elements.length}`);
   lines.push('');
   lines.push('### 可交互元素');
   const ELEMENT_PRIORITY: Record<string, number> = {
@@ -501,6 +502,29 @@ async function attemptSelfHeal(
   }
 
   try {
+    if (!origCmd) {
+      const freshSnapshot = execCli(['--raw', 'snapshot', '--boxes']);
+      const freshSummary = pageSummaryFromSnapshot(freshSnapshot.stdout || freshSnapshot.stderr || '');
+      console.log(`[SELFHEAL] empty origCmd, regenerating on current page: ${freshSummary.elements.length} elements, URL="${freshSummary.url}"`);
+      const regenPrompt = buildCodeGenPrompt(freshSummary, step.actionText, step.expectedText, interactionLog, context.knowledgeContent);
+
+      const regeneratedOutput = await callLlmForCodegen(context.llm, regenPrompt);
+      console.log(`[SELFHEAL] regenerated cliCommand="${regeneratedOutput.cliCommand}"`);
+      if (!regeneratedOutput.cliCommand) { console.log('[SELFHEAL] regenerate: empty cmd'); return null; }
+
+      const regenResult = await executeCliAction(context.cli, regeneratedOutput.cliCommand);
+      if (!regenResult.success) return null;
+
+      const regenVerify = await verifyAfterAction(context.cli, step.expectedText, regeneratedOutput.cliCommand);
+      if (!regenVerify.verified) return null;
+
+      const screenshotPath = await captureScreenshot(context.cli, step.order);
+      return {
+        result: { stepOrder: step.order, status: 'PASS', screenshotPath, pythonCode: regeneratedOutput.pythonCode },
+        interaction: { stepOrder: step.order, pythonCode: regeneratedOutput.pythonCode, cliCommand: regeneratedOutput.cliCommand, targetElement: regeneratedOutput.targetElement, passed: true, screenshotPath },
+      };
+    }
+
     const healingPrompt = buildSelfHealPrompt(failed, step, pageSummary, context);
     const messages = [
       { role: 'system', content: SELFHEAL_SYSTEM_PROMPT },

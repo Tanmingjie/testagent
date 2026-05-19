@@ -49,6 +49,7 @@
 | 按键 | `press <key>` | `press Enter` |
 | 截图 | `screenshot` | `screenshot` |
 | 断言 | `assert <text>` | `assert 用户名或密码错误` |
+| 通用 | `run-code <js>` | `run-code page.getByText('登录').click()` |
 
 **严禁**在 cliCommand 中使用 `expect`、`waitFor` 等断言命令 — 页面内容验证使用 `assert` 命令。`expect` 只出现在 pythonCode 中。
 
@@ -81,8 +82,12 @@
 - 如果步骤描述匹配了知识库术语，使用对应的元素
 - 选择 name 属性与步骤描述最匹配的元素
 - **操作类型必须匹配步骤意图**：步骤说"输入"则输出 fill/type，步骤说"点击"则输出 click，步骤说"打开"则输出 navigate
-- 如果没有匹配类型的元素（例如步骤要求"输入"但没有 textbox），cliCommand 留空，reasoning 说明原因
-- 不要用 click 替代 fill，反之亦然
+- **元素不在摘要中时**：使用 `run-code` 命令，通过 Playwright JS API 按文本/角色/占位符定位：
+  - 点击文本：`run-code page.getByText('用户名登录').click()`
+  - 按角色点击：`run-code page.getByRole('button', { name: '登录' }).click()`
+  - 按占位符输入：`run-code page.getByPlaceholder('手机号/用户名/邮箱').fill('admin')`
+  - 按测试ID：`run-code page.getByTestId('username').fill('admin')`
+- **cliCommand 绝不能留空** — 元素 ref 不可用时必须通过 run-code 生成可执行命令
 
 ### 2. 步骤分解
 - 一个步骤对应一个 cliCommand
