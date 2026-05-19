@@ -124,12 +124,16 @@ export async function executeTestCase(
       results.push(result);
       interactionLog.push(interaction);
 
+      await new Promise((r) => setTimeout(r, 2000));
+
       const fresh = execCli(['--raw', 'snapshot', '--boxes']);
       const raw = fresh.stdout || fresh.stderr || '';
+      const elements = parseAccessibilityTree(raw);
+      console.log(`[SNAPSHOT] step=${step.order} success=${fresh.success} rawLen=${raw.length} elements=${elements.length}`);
       pageSummary = {
         url: execCli(['eval', '() => location.href']).success ? execCli(['eval', '() => location.href']).stdout.trim() : '',
         title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
-        elements: parseAccessibilityTree(raw),
+        elements,
         matchedTerms: [],
       };
     }
@@ -312,6 +316,9 @@ async function executeCliAction(cli: CliCommands, cliCommand: string): Promise<C
         break;
       case 'screenshot':
         result = await cli.screenshot(args[0]);
+        break;
+      case 'run-code':
+        result = await execCli(['run-code', args.join(' ')]);
         break;
       case 'expect':
         return { success: false, error: '"expect" 是 Python 断言 API，不是 playwright-cli 命令。请使用 click / fill 等 CLI 命令。' };
