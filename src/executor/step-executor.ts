@@ -136,8 +136,9 @@ export async function executeTestCase(
       const raw = fresh.stdout || fresh.stderr || '';
       const elements = parseAccessibilityTree(raw);
       console.log(`[SNAPSHOT] step=${step.order} success=${fresh.success} rawLen=${raw.length} elements=${elements.length} preview="${raw.slice(0, 300)}"`);
+      const urlOutput = execCli(['eval', '() => location.href']);
       pageSummary = {
-        url: execCli(['eval', '() => location.href']).success ? execCli(['eval', '() => location.href']).stdout.trim() : '',
+        url: urlOutput.success ? (urlOutput.stdout.match(/["']?(https?:\/\/[^\s"']+)["']?/)?.[1] || '') : '',
         title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
         elements,
         matchedTerms: [],
@@ -423,8 +424,9 @@ function validateCommandMatchesAction(command: string, actionText: string): stri
 
 function pageSummaryFromSnapshot(raw: string): PageSummary {
   const urlResult = execCli(['eval', '() => location.href']);
+  const urlMatch = urlResult.success ? urlResult.stdout.match(/["']?(https?:\/\/[^\s"']+)["']?/) : null;
   return {
-    url: urlResult.success ? urlResult.stdout.trim() : '',
+    url: urlMatch?.[1] || '',
     title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
     elements: parseAccessibilityTree(raw),
     matchedTerms: [],
