@@ -126,10 +126,10 @@ export async function executeTestCase(
 
       await new Promise((r) => setTimeout(r, 2000));
 
-      const fresh = execCli(['--raw', 'snapshot', '--boxes']);
+      const fresh = execCli(['snapshot', '--boxes']);
       const raw = fresh.stdout || fresh.stderr || '';
       const elements = parseAccessibilityTree(raw);
-      console.log(`[SNAPSHOT] step=${step.order} success=${fresh.success} rawLen=${raw.length} elements=${elements.length}`);
+      console.log(`[SNAPSHOT] step=${step.order} success=${fresh.success} rawLen=${raw.length} elements=${elements.length} preview="${raw.slice(0, 300)}"`);
       pageSummary = {
         url: execCli(['eval', '() => location.href']).success ? execCli(['eval', '() => location.href']).stdout.trim() : '',
         title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
@@ -360,7 +360,7 @@ async function verifyAfterAction(
   expectedText: string,
   command: string,
 ): Promise<{ verified: boolean; error?: string }> {
-  const snapshotResult = execCli(['--raw', 'snapshot']);
+  const snapshotResult = execCli(['snapshot', '--boxes']);
   const pageText = (snapshotResult.stdout || snapshotResult.stderr || '').toLowerCase();
 
   for (const pattern of VERIFY_ERROR_PATTERNS) {
@@ -442,7 +442,7 @@ async function attemptSelfHeal(
     console.log(`[SELFHEAL] verifyAfterAction → verified=${verifyResult.verified}`);
     if (!verifyResult.verified) return null;
 
-    const snapshotAfter = execCli(['--raw', 'snapshot']);
+    const snapshotAfter = execCli(['snapshot', '--boxes']);
     const freshPageText = (snapshotAfter.stdout || snapshotAfter.stderr || '').toLowerCase();
 
     const origCmd = failed.interaction.cliCommand;
