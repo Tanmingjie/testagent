@@ -11,7 +11,7 @@ import { decomposeTestCase } from "../../translator/decompose-service";
 import { translatorPrompt, decomposerPrompt } from "../../shared/llm-prompts";
 import { TestCaseSchema } from "../../shared/schemas";
 import { KnowledgeService } from "../../knowledge/knowledge-service";
-import { LlmClient } from "../../shared/llm-client";
+import { LlmClient, extractJson } from "../../shared/llm-client";
 import type { TestCase, TestStep } from "../../shared/types";
 
 const router = new Hono();
@@ -325,13 +325,17 @@ router.post("/:id/translate/stream", async (c) => {
 
   const stream = new ReadableStream({
     async start(controller) {
-      let full = "";
+      let contentFull = "";
       try {
         for await (const chunk of llm.chatCompletionStream(messages, { responseFormat: { type: "json_object" } })) {
-          full += chunk;
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ chunk })}\n\n`));
+          if (chunk.type === 'reasoning') {
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'reasoning', chunk: chunk.text })}\n\n`));
+          } else {
+            contentFull += chunk.text;
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'content', chunk: chunk.text })}\n\n`));
+          }
         }
-        const parsed = JSON.parse(full);
+        const parsed = JSON.parse(extractJson(contentFull));
         const translated = TestCaseSchema.parse(parsed);
         await db.update(testCases).set({ stepsJson: JSON.stringify(translated.steps), status: "translated", updatedAt: new Date().toISOString() }).where(eq(testCases.id, id));
         const steps = translated.steps.map((s: any) => ({ order: s.order, actionText: s.actionText, expectedText: s.expectedText }));
@@ -365,13 +369,17 @@ router.post("/:id/decompose/stream", async (c) => {
 
   const stream = new ReadableStream({
     async start(controller) {
-      let full = "";
+      let contentFull = "";
       try {
         for await (const chunk of llm.chatCompletionStream(messages, { responseFormat: { type: "json_object" } })) {
-          full += chunk;
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ chunk })}\n\n`));
+          if (chunk.type === 'reasoning') {
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'reasoning', chunk: chunk.text })}\n\n`));
+          } else {
+            contentFull += chunk.text;
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'content', chunk: chunk.text })}\n\n`));
+          }
         }
-        const parsed = JSON.parse(full);
+        const parsed = JSON.parse(extractJson(contentFull));
         const decomposed = TestCaseSchema.parse(parsed);
         await db.update(testCases).set({ stepsJson: JSON.stringify(decomposed.steps), status: "decomposed", updatedAt: new Date().toISOString() }).where(eq(testCases.id, id));
         const steps = decomposed.steps.map((s: any) => ({ order: s.order, actionText: s.actionText, expectedText: s.expectedText }));

@@ -69,6 +69,10 @@ export function extractJson(raw: string): string {
   return text;
 }
 
+export type StreamChunk =
+  | { type: 'content'; text: string }
+  | { type: 'reasoning'; text: string };
+
 export class LlmClient {
   private apiUrl: string;
   private apiKey: string;
@@ -104,7 +108,7 @@ export class LlmClient {
   async *chatCompletionStream(
     messages: { role: string; content: string }[],
     opts?: { responseFormat?: { type: 'json_object' | 'text' } },
-  ): AsyncGenerator<string> {
+  ): AsyncGenerator<StreamChunk> {
     const body: Record<string, unknown> = {
       model: this.model,
       messages,
@@ -160,10 +164,13 @@ export class LlmClient {
           try {
             const parsed = JSON.parse(data);
             const delta = parsed.choices?.[0]?.delta;
-            const chunk = delta?.content || delta?.reasoning_content;
-            if (chunk) {
-              fullText += chunk;
-              yield chunk;
+            if (delta?.reasoning_content) {
+              fullText += delta.reasoning_content;
+              yield { type: 'reasoning', text: delta.reasoning_content };
+            }
+            if (delta?.content) {
+              fullText += delta.content;
+              yield { type: 'content', text: delta.content };
             }
           } catch {}
         }
@@ -215,18 +222,7 @@ export class LlmClient {
     };
 
     const msg = data.choices?.[0]?.message;
-    let content = msg?.content || '';
-    const reasoning = msg?.reasoning_content || '';
-
-    if (opts?.responseFormat?.type === 'json_object' && content) {
-      try { JSON.parse(content); } catch {
-        if (reasoning && /^\s*[{\[]/.test(reasoning)) {
-          content = reasoning;
-        }
-      }
-    }
-
-    if (!content) content = reasoning;
+    const content = msg?.content || '';
     const tokens = data.usage?.total_tokens ?? 0;
     this.tokensUsed += tokens;
 

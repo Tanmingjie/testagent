@@ -52,6 +52,7 @@ interface PhaseState {
   status: PhaseStatus
   steps: CaseStep[]
   error?: string
+  reasoningText?: string
 }
 
 type Mode = 'auto' | 'manual'
@@ -272,7 +273,9 @@ export default function ExecutionPage() {
             if (!trimmed.startsWith('data: ')) continue
             try {
               const data = JSON.parse(trimmed.slice(6))
-              if (data.status === 'done') {
+              if (data.type === 'reasoning') {
+                setter((prev) => ({ ...prev, reasoningText: (prev.reasoningText || '') + data.chunk }))
+              } else if (data.status === 'done') {
                 setter({ status: 'done', steps: data.steps })
                 return { steps: data.steps }
               } else if (data.status === 'error') {
@@ -402,7 +405,7 @@ export default function ExecutionPage() {
           ? decompose
           : execute
 
-    const { status: phaseStatus, steps: phaseSteps, error: phaseError } = state
+    const { status: phaseStatus, steps: phaseSteps, error: phaseError, reasoningText } = state
     const isExpanded = phaseStatus !== 'idle'
     const PhaseIcon = config.icon
 
@@ -500,6 +503,10 @@ export default function ExecutionPage() {
 
         {isExpanded && (
           <div className="px-4 py-3 border-t border-gray-100">
+            {(config.key === 'translate' || config.key === 'decompose') && state.reasoningText && (
+              <ReasoningPanel text={state.reasoningText} />
+            )}
+
             {phaseStatus === 'loading' && config.key !== 'execute' && (
               <div className="flex items-center justify-center py-6">
                 <Loader2 className="w-5 h-5 animate-spin text-blue-500 mr-2" />
@@ -932,6 +939,28 @@ export default function ExecutionPage() {
             />
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function ReasoningPanel({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  if (!text) return null
+  return (
+    <div className="mb-3">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs text-purple-600 hover:text-purple-800 transition-colors"
+      >
+        <span className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+        思考过程 {open ? '▾' : '▸'}
+      </button>
+      {open && (
+        <pre className="mt-2 p-3 bg-purple-50 rounded text-xs text-purple-900 max-h-40 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed border border-purple-100">
+          {text}
+        </pre>
       )}
     </div>
   )
