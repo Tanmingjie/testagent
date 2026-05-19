@@ -10,6 +10,7 @@ import { execCli } from './cli-runner';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CODEPROMPT_PATH = resolve(__dirname, 'codegen-prompt.md');
+const SELFHEAL_PROMPT_PATH = resolve(__dirname, 'selfheal-prompt.md');
 const SCREENSHOT_DIR = resolve(__dirname, '../../data/screenshots');
 
 export async function executeStep(
@@ -75,7 +76,13 @@ export async function executeStep(
     return first;
   }
 
-  return doAttempt(first.interaction.error);
+  const healed = await attemptSelfHeal(first, step, context, pageSummary, interactionLog);
+  if (healed) return healed;
+
+  const fallback = await doAttempt(first.interaction.error);
+  if (fallback.result.status === 'PASS') return fallback;
+
+  return first.result.status === 'FAIL' ? first : fallback;
 }
 
 export async function executeTestCase(
@@ -131,6 +138,7 @@ export function classifyFailure(error: string): 'FAIL' | 'BLOCK' {
 }
 
 const SYSTEM_PROMPT = readFileSync(CODEPROMPT_PATH, 'utf-8');
+const SELFHEAL_SYSTEM_PROMPT = readFileSync(SELFHEAL_PROMPT_PATH, 'utf-8');
 
 function buildSystemPrompt(): string {
   return SYSTEM_PROMPT;
@@ -360,6 +368,83 @@ async function verifyAfterAction(
   }
 
   return { verified: true };
+}
+
+async function attemptSelfHeal(
+  failed: { result: StepResult; interaction: Interaction },
+  step: TestStep,
+  context: ExecutionContext,
+  pageSummary: PageSummary,
+  interactionLog: Interaction[],
+): Promise<{ result: StepResult; interaction: Interaction } | null> {
+  const healingPrompt = buildSelfHealPrompt(failed, step, pageSummary, context);
+  const messages = [
+    { role: 'system', content: SELFHEAL_SYSTEM_PROMPT },
+    { role: 'user', content: healingPrompt },
+  ];
+
+  try {
+    const response = await context.llm.chatCompletion(messages, {
+      responseFormat: { type: 'json_object' },
+    });
+    const healed = parseLLMResponse(response.content);
+
+    if (!healed.cliCommand) return null;
+
+    const cliResult = await executeCliAction(context.cli, healed.cliCommand);
+    if (!cliResult.success) return null;
+
+    const verifyResult = await verifyAfterAction(context.cli, step.expectedText, healed.cliCommand);
+    if (!verifyResult.verified) return null;
+
+    const screenshotPath = await captureScreenshot(context.cli, step.order);
+    const healedResult: StepResult = {
+      stepOrder: step.order,
+      status: 'PASS',
+      screenshotPath,
+      error: undefined,
+      pythonCode: healed.pythonCode,
+    };
+    const healedInteraction: Interaction = {
+      stepOrder: step.order,
+      pythonCode: healed.pythonCode,
+      cliCommand: healed.cliCommand,
+      targetElement: healed.targetElement,
+      passed: true,
+      screenshotPath,
+    };
+
+    return { result: healedResult, interaction: healedInteraction };
+  } catch {
+    return null;
+  }
+}
+
+function buildSelfHealPrompt(
+  failed: { result: StepResult; interaction: Interaction },
+  step: TestStep,
+  pageSummary: PageSummary,
+  context: ExecutionContext,
+): string {
+  return [
+    `## 失败步骤描述`,
+    `操作: ${step.actionText}`,
+    `预期结果: ${step.expectedText || '（无）'}`,
+    ``,
+    `## 原始断裂的 cliCommand`,
+    failed.interaction.cliCommand ? `\`${failed.interaction.cliCommand}\`` : '（LLM 未生成命令）',
+    ``,
+    `## 错误日志`,
+    failed.interaction.error || '（无详细错误）',
+    ``,
+    `## 当前页面快照`,
+    `URL: ${pageSummary.url}`,
+    `标题: ${pageSummary.title}`,
+    `可交互元素:`,
+    ...pageSummary.elements.map((el) => `- ${el.ref}: ${el.role} "${el.name}"${el.matchedTerm ? ` (匹配: ${el.matchedTerm})` : ''}`),
+    ``,
+    context.knowledgeContent ? `## 产品知识库\n${context.knowledgeContent}\n` : '',
+  ].join('\n');
 }
 
 async function captureScreenshot(cli: CliCommands, stepOrder: number): Promise<string | undefined> {
