@@ -25,6 +25,7 @@ export async function executeStep(
   const doAttempt = async (retryError?: string): Promise<{ result: StepResult; interaction: Interaction }> => {
     const prompt = buildCodeGenPrompt(pageSummary, actionText, expectedText, interactionLog, context.knowledgeContent, retryError);
     const llmOutput = await callLlmForCodegen(llm, prompt);
+    console.log(`[CODEGEN] step=${order} cmd="${llmOutput.cliCommand}" target=${llmOutput.targetElement?.ref || '-'} reasoning="${llmOutput.reasoning?.slice(0, 80)}"`);
 
     let cliOk = false;
     let error: string | undefined;
