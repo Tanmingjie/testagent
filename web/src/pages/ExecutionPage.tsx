@@ -276,7 +276,7 @@ export default function ExecutionPage() {
               if (data.type === 'reasoning') {
                 setter((prev) => ({ ...prev, reasoningText: (prev.reasoningText || '') + data.chunk }))
               } else if (data.status === 'done') {
-                setter({ status: 'done', steps: data.steps })
+                setter((prev) => ({ status: 'done', steps: data.steps, reasoningText: prev.reasoningText }))
                 return { steps: data.steps }
               } else if (data.status === 'error') {
                 setter({ status: 'error', steps: [], error: data.error })
@@ -288,7 +288,7 @@ export default function ExecutionPage() {
             }
           }
         }
-        setter({ status: 'done', steps: [] })
+        setter((prev) => ({ status: 'done', steps: [], reasoningText: prev.reasoningText }))
         return { steps: [] }
       } catch (err) {
         const msg = err instanceof Error ? err.message : `${phase} 失败`
