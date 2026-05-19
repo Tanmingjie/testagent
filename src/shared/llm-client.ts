@@ -60,6 +60,15 @@ async function logLlmCall(
   appendFile(resolve(process.cwd(), 'data/logs/llm.log'), detail, 'utf-8').catch(() => {});
 }
 
+export function extractJson(raw: string): string {
+  let text = raw.trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced) {
+    text = fenced[1].trim();
+  }
+  return text;
+}
+
 export class LlmClient {
   private apiUrl: string;
   private apiKey: string;
@@ -206,7 +215,18 @@ export class LlmClient {
     };
 
     const msg = data.choices?.[0]?.message;
-    const content = msg?.content || msg?.reasoning_content || '';
+    let content = msg?.content || '';
+    const reasoning = msg?.reasoning_content || '';
+
+    if (opts?.responseFormat?.type === 'json_object' && content) {
+      try { JSON.parse(content); } catch {
+        if (reasoning && /^\s*[{\[]/.test(reasoning)) {
+          content = reasoning;
+        }
+      }
+    }
+
+    if (!content) content = reasoning;
     const tokens = data.usage?.total_tokens ?? 0;
     this.tokensUsed += tokens;
 

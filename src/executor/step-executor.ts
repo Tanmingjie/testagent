@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TestCase, TestStep, PageSummary, Interaction, StepResult } from '@shared/types';
 import type { LlmClient } from '@shared/llm-client';
+import { extractJson } from '@shared/llm-client';
 import type { ExecutionContext, CliCommands, LLMCodeGenOutput } from './types';
 import { analyzePage, parseAccessibilityTree } from './page-analyzer';
 import { CliSession } from './cli-session';
@@ -289,11 +290,7 @@ function buildCodeGenPrompt(
 }
 
 function parseLLMResponse(content: string): LLMCodeGenOutput {
-  let json = content.trim();
-  const jsonMatch = json.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonMatch) {
-    json = jsonMatch[1].trim();
-  }
+  const json = extractJson(content);
 
   try {
     const parsed = JSON.parse(json) as Record<string, unknown>;

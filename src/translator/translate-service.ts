@@ -1,4 +1,4 @@
-import { LlmClient } from "@shared/llm-client";
+import { LlmClient, extractJson } from "@shared/llm-client";
 import { translatorPrompt } from "@shared/llm-prompts";
 import type { TestCase } from "@shared/types";
 import { TestCaseSchema } from "@shared/schemas";
@@ -41,9 +41,11 @@ export async function translateTestCase(
       responseFormat: { type: "json_object" },
     });
 
+    const json = extractJson(content);
+
     let parsed: unknown;
     try {
-      parsed = JSON.parse(content);
+      parsed = JSON.parse(json);
     } catch {
       throw new Error("LLM returned invalid JSON");
     }
