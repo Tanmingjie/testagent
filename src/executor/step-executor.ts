@@ -126,6 +126,12 @@ export async function executeTestCase(
 
       await new Promise((r) => setTimeout(r, 2000));
 
+      const tabsResult = execCli(['tabs']);
+      if (tabsResult.success && tabsResult.stdout.match(/^\s*-\s*1:/m)) {
+        execCli(['tabs', 'select', '1']);
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+
       const fresh = execCli(['snapshot', '--boxes']);
       const raw = fresh.stdout || fresh.stderr || '';
       const elements = parseAccessibilityTree(raw);
