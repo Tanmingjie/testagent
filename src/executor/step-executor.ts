@@ -124,25 +124,29 @@ export async function executeTestCase(
       results.push(result);
       interactionLog.push(interaction);
 
-      await new Promise((r) => setTimeout(r, 2000));
+      const isAssertStep = step.actionText.includes('验证') || step.actionText.includes('断言') || step.actionText.includes('检查');
 
-      const tabsResult = execCli(['tabs']);
-      if (tabsResult.success && tabsResult.stdout.match(/^\s*-\s*1:/m)) {
-        execCli(['tabs', 'select', '1']);
-        await new Promise((r) => setTimeout(r, 1500));
+      if (!isAssertStep) {
+        await new Promise((r) => setTimeout(r, 2000));
+
+        const tabsResult = execCli(['tabs']);
+        if (tabsResult.success && tabsResult.stdout.match(/^\s*-\s*1:/m)) {
+          execCli(['tabs', 'select', '1']);
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+
+        const fresh = execCli(['--raw', 'snapshot', '--boxes']);
+        const raw = fresh.stdout || fresh.stderr || '';
+        const elements = parseAccessibilityTree(raw);
+        console.log(`[SNAPSHOT] step=${step.order} success=${fresh.success} rawLen=${raw.length} elements=${elements.length}`);
+        const urlOutput = execCli(['eval', '() => location.href']);
+        pageSummary = {
+          url: urlOutput.success ? (urlOutput.stdout.match(/["']?(https?:\/\/[^\s"']+)["']?/)?.[1] || '') : '',
+          title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
+          elements,
+          matchedTerms: [],
+        };
       }
-
-      const fresh = execCli(['--raw', 'snapshot', '--boxes']);
-      const raw = fresh.stdout || fresh.stderr || '';
-      const elements = parseAccessibilityTree(raw);
-      console.log(`[SNAPSHOT] step=${step.order} success=${fresh.success} rawLen=${raw.length} elements=${elements.length} preview="${raw.slice(0, 300)}"`);
-      const urlOutput = execCli(['eval', '() => location.href']);
-      pageSummary = {
-        url: urlOutput.success ? (urlOutput.stdout.match(/["']?(https?:\/\/[^\s"']+)["']?/)?.[1] || '') : '',
-        title: raw.match(/(?:title|name)\s*:\s*[""](.+?)[""]/i)?.[1] || '',
-        elements,
-        matchedTerms: [],
-      };
     }
   } finally {
     await CliSession.close();
@@ -189,9 +193,13 @@ function buildUserPrompt(
   lines.push(`标题: ${pageSummary.title}`);
   lines.push('');
   lines.push('### 可交互元素');
-  for (const el of pageSummary.elements) {
+  const shown = pageSummary.elements.slice(0, 40);
+  for (const el of shown) {
     const matchInfo = el.matchedTerm ? ` (匹配术语: ${el.matchedTerm})` : '';
     lines.push(`- ${el.ref}: ${el.role} "${el.name}"${matchInfo}`);
+  }
+  if (pageSummary.elements.length > 40) {
+    lines.push(`- ... (共 ${pageSummary.elements.length} 个元素，仅显示前 40)`);
   }
   lines.push('');
 
