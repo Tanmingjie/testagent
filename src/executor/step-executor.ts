@@ -379,33 +379,49 @@ async function attemptSelfHeal(
       responseFormat: { type: 'json_object' },
     });
     const healed = parseLLMResponse(response.content);
-
     if (!healed.cliCommand) return null;
 
-    const cliResult = await executeCliAction(context.cli, healed.cliCommand);
-    if (!cliResult.success) return null;
+    const healResult = await executeCliAction(context.cli, healed.cliCommand);
+    if (!healResult.success) return null;
 
     const verifyResult = await verifyAfterAction(context.cli, step.expectedText, healed.cliCommand);
     if (!verifyResult.verified) return null;
 
-    const screenshotPath = await captureScreenshot(context.cli, step.order);
-    const healedResult: StepResult = {
-      stepOrder: step.order,
-      status: 'PASS',
-      screenshotPath,
-      error: undefined,
-      pythonCode: healed.pythonCode,
-    };
-    const healedInteraction: Interaction = {
-      stepOrder: step.order,
-      pythonCode: healed.pythonCode,
-      cliCommand: healed.cliCommand,
-      targetElement: healed.targetElement,
-      passed: true,
-      screenshotPath,
-    };
+    const snapshotAfter = execCli(['--raw', 'snapshot']);
+    const freshPageText = (snapshotAfter.stdout || snapshotAfter.stderr || '').toLowerCase();
 
-    return { result: healedResult, interaction: healedInteraction };
+    const origCmd = failed.interaction.cliCommand;
+    if (origCmd) {
+      const retryResult = await executeCliAction(context.cli, origCmd);
+      if (retryResult.success) {
+        const verifyRetry = await verifyAfterAction(
+          context.cli,
+          step.expectedText,
+          origCmd,
+        );
+        if (verifyRetry.verified) {
+          const screenshotPath = await captureScreenshot(context.cli, step.order);
+          const healedResult: StepResult = {
+            stepOrder: step.order,
+            status: 'PASS',
+            screenshotPath,
+            error: undefined,
+            pythonCode: healed.pythonCode,
+          };
+          const healedInteraction: Interaction = {
+            stepOrder: step.order,
+            pythonCode: healed.pythonCode,
+            cliCommand: origCmd,
+            targetElement: healed.targetElement,
+            passed: true,
+            screenshotPath,
+          };
+          return { result: healedResult, interaction: healedInteraction };
+        }
+      }
+    }
+
+    return null;
   } catch {
     return null;
   }
