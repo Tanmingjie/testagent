@@ -34,7 +34,7 @@ export async function executeStep(
       cliOk = cliResult.success;
       error = cliResult.error;
 
-      if (cliOk && expectedText) {
+      if (cliOk) {
         const verifyResult = await verifyAfterAction(cli, expectedText, llmOutput.cliCommand);
         if (!verifyResult.verified) {
           cliOk = false;
@@ -336,6 +336,14 @@ async function verifyAfterAction(
   for (const pattern of VERIFY_ERROR_PATTERNS) {
     if (pageText.includes(pattern.toLowerCase())) {
       return { verified: false, error: `页面检测到异常: ${pattern}` };
+    }
+  }
+
+  if (expectedText) {
+    const keywords = expectedText.replace(/[的了吗是著有在给于和或与]/g, ' ').split(/\s+/).filter(Boolean);
+    const found = keywords.some((kw) => kw.length >= 2 && pageText.includes(kw.toLowerCase()));
+    if (!found && keywords.some((kw) => kw.length >= 2)) {
+      return { verified: false, error: `预期结果「${expectedText}」中的关键词未在页面中找到` };
     }
   }
 
