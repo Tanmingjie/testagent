@@ -411,6 +411,7 @@ async function attemptSelfHeal(
   pageSummary: PageSummary,
   interactionLog: Interaction[],
 ): Promise<{ result: StepResult; interaction: Interaction } | null> {
+  console.log(`[SELFHEAL] step=${step.order} origCmd="${failed.interaction.cliCommand}" error="${failed.interaction.error}"`);
   const healingPrompt = buildSelfHealPrompt(failed, step, pageSummary, context);
   const messages = [
     { role: 'system', content: SELFHEAL_SYSTEM_PROMPT },
@@ -422,12 +423,15 @@ async function attemptSelfHeal(
       responseFormat: { type: 'json_object' },
     });
     const healed = parseLLMResponse(response.content);
-    if (!healed.cliCommand) return null;
+    console.log(`[SELFHEAL] LLM cliCommand="${healed.cliCommand}"`);
+    if (!healed.cliCommand) { console.log('[SELFHEAL] no cliCommand, aborting'); return null; }
 
     const healResult = await executeCliAction(context.cli, healed.cliCommand);
+    console.log(`[SELFHEAL] executed "${healed.cliCommand}" → success=${healResult.success} error="${healResult.error}"`);
     if (!healResult.success) return null;
 
     const verifyResult = await verifyAfterAction(context.cli, step.expectedText, healed.cliCommand);
+    console.log(`[SELFHEAL] verifyAfterAction → verified=${verifyResult.verified}`);
     if (!verifyResult.verified) return null;
 
     const snapshotAfter = execCli(['--raw', 'snapshot']);
@@ -453,11 +457,13 @@ async function attemptSelfHeal(
     }
 
     const freshSummary = pageSummaryFromSnapshot(snapshotAfter.stdout || snapshotAfter.stderr || '');
+    console.log(`[SELFHEAL] regenerate: freshSummary has ${freshSummary.elements.length} elements`);
     const regeneratedPrompt = buildCodeGenPrompt(freshSummary, step.actionText, step.expectedText, interactionLog, context.knowledgeContent);
 
     try {
       const regeneratedOutput = await callLlmForCodegen(context.llm, regeneratedPrompt);
-      if (!regeneratedOutput.cliCommand) return null;
+      console.log(`[SELFHEAL] regenerated cliCommand="${regeneratedOutput.cliCommand}"`);
+      if (!regeneratedOutput.cliCommand) { console.log('[SELFHEAL] regenerate: empty cmd'); return null; }
 
       const regenResult = await executeCliAction(context.cli, regeneratedOutput.cliCommand);
       if (!regenResult.success) return null;
@@ -470,10 +476,12 @@ async function attemptSelfHeal(
         result: { stepOrder: step.order, status: 'PASS', screenshotPath, pythonCode: regeneratedOutput.pythonCode },
         interaction: { stepOrder: step.order, pythonCode: regeneratedOutput.pythonCode, cliCommand: regeneratedOutput.cliCommand, targetElement: regeneratedOutput.targetElement, passed: true, screenshotPath },
       };
-    } catch {
+    } catch (e) {
+      console.log(`[SELFHEAL] regenerate error: ${(e as Error).message}`);
       return null;
     }
-  } catch {
+  } catch (e) {
+    console.log(`[SELFHEAL] error: ${(e as Error).message}`);
     return null;
   }
 }
