@@ -320,8 +320,17 @@ async function executeCliAction(cli: CliCommands, cliCommand: string): Promise<C
       case 'run-code':
         result = await execCli(['run-code', args.join(' ')]);
         break;
+      case 'assert':
+        {
+          const text = args.join(' ');
+          const snap = execCli(['snapshot']);
+          const pageContent = (snap.stdout || '').toLowerCase();
+          const found = pageContent.includes(text.toLowerCase());
+          result = { success: found, stdout: found ? `"${text}" found on page` : '', stderr: found ? '' : `"${text}" not found on page` };
+        }
+        break;
       case 'expect':
-        return { success: false, error: '"expect" 是 Python 断言 API，不是 playwright-cli 命令。请使用 click / fill 等 CLI 命令。' };
+        return { success: false, error: '"expect" 是 Python 断言 API。如需验证页面内容，请使用 assert <文本> 命令。' };
       default:
         return { success: false, error: `Unknown CLI action: "${action}"` };
     }
@@ -395,6 +404,9 @@ function validateCommandMatchesAction(command: string, actionText: string): stri
   }
   if (text.includes('点击') || text.includes('单击')) {
     return cmdAction === 'click' ? null : `${MISM}: 步骤需要click，但LLM生成了${cmdAction}`;
+  }
+  if (text.includes('验证') || text.includes('检查') || text.includes('断言') || text.includes('预期')) {
+    return cmdAction === 'assert' ? null : `${MISM}: 步骤需要assert（验证页面内容），但LLM生成了${cmdAction}`;
   }
   if (text.includes('打开') || text.includes('导航') || text.includes('访问')) {
     return (cmdAction === 'navigate' || cmdAction === 'goto' || cmdAction === 'click') ? null : `${MISM}: 步骤需要navigate/click，但LLM生成了${cmdAction}`;

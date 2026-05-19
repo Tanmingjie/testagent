@@ -48,8 +48,9 @@
 | 导航 | `navigate <url>` | `navigate https://example.com` |
 | 按键 | `press <key>` | `press Enter` |
 | 截图 | `screenshot` | `screenshot` |
+| 断言 | `assert <text>` | `assert 用户名或密码错误` |
 
-**严禁**在 cliCommand 中使用 `expect`、`waitFor`、`assert` 等断言命令 — 这些只出现在 pythonCode 中。
+**严禁**在 cliCommand 中使用 `expect`、`waitFor` 等断言命令 — 页面内容验证使用 `assert` 命令。`expect` 只出现在 pythonCode 中。
 
 ## Python 代码生成规则
 
@@ -68,7 +69,7 @@
 
 4. **导航**使用 `page.goto(url)`
 
-5. **断言使用 Playwright 的 expect API**（注意：这些只出现在 pythonCode 中，**严禁**用作 cliCommand）：
+5. **断言使用 Playwright 的 expect API**（注意：这些只出现在 pythonCode 中，**严禁**用作 cliCommand。页面内容验证请使用 assert 命令）：
    - `expect(page).to_have_title(text)`
    - `expect(page.get_by_role(...)).to_be_visible()`
    - `expect(page.get_by_role(...)).to_have_text(text)`
